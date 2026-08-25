@@ -59,6 +59,40 @@ const CATEGORIES = [
 ];
 const CONTENT_TYPES = ['news', 'news', 'news', 'video', 'column', 'live-blog'];
 const DEVICES = [['mobile', 0.72], ['desktop', 0.22], ['tablet', 0.05], ['tv', 0.01]];
+
+/**
+ * Geografija kakvu srpski sportski portal stvarno ima: dominantna Srbija,
+ * region, pa dijaspora. [drzava, grad, lat, lon, tezina]
+ */
+const PLACES = [
+  ['RS', 'Belgrade',    44.81, 20.46, 0.34],
+  ['RS', 'Novi Sad',    45.25, 19.83, 0.09],
+  ['RS', 'Nis',         43.32, 21.90, 0.05],
+  ['RS', 'Kragujevac',  44.01, 20.91, 0.03],
+  ['RS', 'Subotica',    46.10, 19.67, 0.02],
+  ['RS', 'Cacak',       43.89, 20.35, 0.02],
+  ['RS', 'Zrenjanin',   45.38, 20.39, 0.02],
+  ['RS', 'Pancevo',     44.87, 20.64, 0.02],
+  ['BA', 'Banja Luka',  44.77, 17.19, 0.04],
+  ['BA', 'Sarajevo',    43.86, 18.41, 0.03],
+  ['ME', 'Podgorica',   42.44, 19.26, 0.03],
+  ['HR', 'Zagreb',      45.81, 15.98, 0.02],
+  ['MK', 'Skopje',      41.99, 21.43, 0.02],
+  ['SI', 'Ljubljana',   46.06, 14.51, 0.01],
+  ['XK', 'Pristina',    42.67, 21.17, 0.01],
+  // Dijaspora
+  ['DE', 'Munich',      48.14, 11.58, 0.05],
+  ['DE', 'Frankfurt',   50.11,  8.68, 0.03],
+  ['DE', 'Berlin',      52.52, 13.40, 0.02],
+  ['AT', 'Vienna',      48.21, 16.37, 0.04],
+  ['CH', 'Zurich',      47.37,  8.54, 0.03],
+  ['SE', 'Stockholm',   59.33, 18.07, 0.02],
+  ['FR', 'Paris',       48.86,  2.35, 0.01],
+  ['US', 'Chicago',     41.88, -87.63, 0.02],
+  ['US', 'New York',    40.71, -74.01, 0.01],
+  ['CA', 'Toronto',     43.65, -79.38, 0.01],
+  ['AU', 'Sydney',     -33.87, 151.21, 0.01],
+];
 const REFERRERS = [
   ['https://www.google.com/', 0.30],
   ['https://news.google.com/', 0.18],
@@ -70,14 +104,55 @@ const REFERRERS = [
   ['https://www.youtube.com/', 0.03],
 ];
 
+/**
+ * Rubrike ne dobijaju saobracaj sa istih mesta - to je ceo smisao preseka
+ * kanal x kategorija (sekcija 10.3). NBA i tenis se pretrazuju, domaci fudbal
+ * i kosarka se dele po Facebook-u, odbojka zivi od Discover talasa.
+ */
+const CATEGORY_CHANNEL_BIAS = {
+  'fudbal/superliga-srbije':  { 'https://www.facebook.com/': 2.6, 'https://www.google.com/': 0.5 },
+  'fudbal/liga-sampiona':     { 'https://www.google.com/': 1.5, 'https://t.co/x': 2.0 },
+  'kosarka/nba':              { 'https://www.google.com/': 2.4, 'https://www.facebook.com/': 0.4 },
+  'kosarka/evroliga':         { 'https://www.facebook.com/': 1.9, 'https://news.google.com/': 0.6 },
+  'tenis/atp':                { 'https://www.google.com/': 2.2, 'https://www.instagram.com/': 1.8 },
+  'ostali-sportovi/odbojka':  { 'https://news.google.com/': 3.0, 'https://www.google.com/': 0.4 },
+};
+
+/**
+ * Dijaspora ne dolazi istim putem kao domaci citaoci: manje direktnog kucanja
+ * adrese, vise Discover-a i Facebook-a. Bez ovoga presek geografija x kanal
+ * izgleda ujednaceno, sto u stvarnosti nikad nije slucaj.
+ */
+const COUNTRY_CHANNEL_BIAS = {
+  RS: { '': 1.6, 'https://www.google.com/': 1.2 },
+  BA: { 'https://www.facebook.com/': 1.4 },
+  ME: { 'https://www.facebook.com/': 1.4 },
+};
+const DIASPORA_BIAS = {
+  '': 0.45,
+  'https://news.google.com/': 1.9,
+  'https://www.facebook.com/': 1.5,
+  'https://www.google.com/': 0.8,
+};
+
+function referrerFor(category, country) {
+  const catBias = CATEGORY_CHANNEL_BIAS[category] ?? {};
+  const geoBias = COUNTRY_CHANNEL_BIAS[country] ?? DIASPORA_BIAS;
+  return weighted(REFERRERS.map(([url, w]) => [
+    url,
+    w * (catBias[url] ?? 1) * (geoBias[url] ?? 1),
+  ]));
+}
+
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 function weighted(pairs) {
-  const r = Math.random();
-  let acc = 0;
+  // Tezine se normalizuju, pa pozivaoci ne moraju da paze da sabiraju na 1
+  const total = pairs.reduce((s, [, w]) => s + w, 0);
+  let r = Math.random() * total;
   for (const [value, weight] of pairs) {
-    acc += weight;
-    if (r <= acc) return value;
+    r -= weight;
+    if (r <= 0) return value;
   }
   return pairs[pairs.length - 1][0];
 }
@@ -127,9 +202,14 @@ async function seedDemo(days) {
 
       for (let s = 0; s < sessions; s++) {
         const sessionId = `s${crypto.randomBytes(10).toString('hex')}`;
+        // Mesto se bira po sesiji: isti posetilac ne skace iz grada u grad
+        const place = weighted(PLACES.map((p) => [p, p[4]]));
         const hasConsent = Math.random() < 0.65;
         const visitorId = hasConsent ? `v${crypto.randomBytes(10).toString('hex')}` : '';
-        const referrer = weighted(REFERRERS);
+        // Sesija ima svoju "temu": referrer se bira prema njoj, a clanci se
+        // onda biraju iz iste rubrike - kao sto se i u stvarnosti desava.
+        const sessionCategory = pick(CATEGORIES)[0];
+        const referrer = referrerFor(sessionCategory, place[0]);
         const device = weighted(DEVICES);
         const source = resolveTrafficSource({
           url: 'https://tvarenasport.com/x',
@@ -145,7 +225,8 @@ async function seedDemo(days) {
         const baseTs = dayStart.getTime() + hour * 3_600_000 + Math.random() * 3_600_000;
 
         for (let p = 0; p < pageviews; p++) {
-          const article = pick(live);
+          const sameTopic = live.filter((a) => a.category === sessionCategory);
+          const article = pick(sameTopic.length ? sameTopic : live);
           const ts = baseTs + p * 90_000;
           if (ts > now) break;
 
@@ -172,8 +253,10 @@ async function seedDemo(days) {
             device_type: device,
             browser: device === 'mobile' ? 'Chrome 126' : 'Chrome 126',
             os: device === 'mobile' ? 'Android' : 'Windows 10/11',
-            country: Math.random() < 0.8 ? 'RS' : pick(['BA', 'ME', 'HR', 'DE', 'AT']),
-            city: pick(['Beograd', 'Novi Sad', 'Niš', 'Kragujevac', '']),
+            country: place[0],
+            city: place[1],
+            lat: place[2],
+            lon: place[3],
             ip_hash: crypto.randomBytes(16).toString('hex'),
             viewport_width: device === 'mobile' ? 390 : 1440,
             viewport_bucket: device === 'mobile' ? 375 : 1440,

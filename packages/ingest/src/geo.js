@@ -28,7 +28,10 @@ export async function initGeo(log) {
   }
 }
 
-const EMPTY = { country: '', city: '' };
+const EMPTY = { country: '', city: '', lat: 0, lon: 0 };
+
+/** Koordinate centra grada, ~1km tacnost. Nose isto sto i ime grada. */
+const round2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : 0);
 
 /**
  * @param {string} ip
@@ -44,6 +47,8 @@ export function lookupGeo(ip, headers = {}) {
         return {
           country: res.country?.iso_code ?? res.registered_country?.iso_code ?? headerCountry ?? '',
           city: res.city?.names?.en ?? '',
+          lat: round2(res.location?.latitude),
+          lon: round2(res.location?.longitude),
         };
       }
     } catch {
@@ -52,7 +57,12 @@ export function lookupGeo(ip, headers = {}) {
   }
 
   if (headerCountry && headerCountry !== 'XX') {
-    return { country: headerCountry, city: (headers['x-geo-city'] || '').toString().slice(0, 120) };
+    return {
+      country: headerCountry,
+      city: (headers['x-geo-city'] || '').toString().slice(0, 120),
+      lat: round2(Number(headers['x-geo-lat'])),
+      lon: round2(Number(headers['x-geo-lon'])),
+    };
   }
   return EMPTY;
 }

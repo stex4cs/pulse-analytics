@@ -148,6 +148,12 @@ Sva vremena u odgovorima su **UTC**.
 | POST | `/ab/tests` | admin, editor | novi test (2–3 varijante) |
 | POST | `/ab/tests/:id/stop` | admin, editor | zaustavi ili promoviši pobednika |
 | DELETE | `/ab/tests/:id` | admin | brisanje |
+| GET | `/geo` | sve | države; filteri `source`, `category`, `tag`, `author` |
+| GET | `/geo/cities` | sve | gradovi sa koordinatama; filter `country` |
+| GET | `/geo/channels` | admin, editor | matrica država × kanal |
+| GET | `/geo/export.csv` | sve | CSV |
+| GET | `/channels` | sve | matrica entitet × kanal; `dimension=author\|category\|tag`, opciono `entity` |
+| GET | `/channels/export.csv` | admin, editor | CSV |
 | GET | `/alerts` | admin, editor | spike alerti |
 | POST | `/alerts/:id/resolve` | admin, editor | označi kao rešeno |
 | GET | `/users` | admin | lista korisnika |

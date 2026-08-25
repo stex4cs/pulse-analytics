@@ -31,7 +31,7 @@ export const EVENT_COLUMNS = Object.freeze([
   'content_type', 'published_at', 'word_count',
   'referrer_domain', 'traffic_source', 'channel_detail',
   'utm_source', 'utm_medium', 'utm_campaign',
-  'device_type', 'browser', 'os', 'country', 'city', 'ip_hash',
+  'device_type', 'browser', 'os', 'country', 'city', 'lat', 'lon', 'ip_hash',
   'scroll_depth', 'active_time_ms', 'click_selector', 'click_x', 'click_y',
   'viewport_width', 'viewport_bucket', 'video_progress', 'ab_test_id', 'ab_variant',
   'is_bot', 'bot_reason',
@@ -161,6 +161,8 @@ export function buildEventRow(raw, ctx) {
     os: ctx.ua.os,
     country: str(ctx.geo.country, 4),
     city: str(ctx.geo.city, MAX.city),
+    lat: Number(ctx.geo.lat) || 0,
+    lon: Number(ctx.geo.lon) || 0,
     ip_hash: ctx.ipHash,
 
     scroll_depth: type === 'scroll_depth' ? clampInt(raw.depth, 0, 100) : 0,

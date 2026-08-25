@@ -38,7 +38,7 @@ Redis Streams                buffer koji apsorbuje spike
    ▼
 Worker                       batch INSERT (XACK tek posle uspeha)
    ▼
-ClickHouse                   sirovi eventi (90d TTL) + 18 materialized views
+ClickHouse                   sirovi eventi (90d TTL) + 20 materialized views
    │  cron: 5 min / noćno
    ▼
 PostgreSQL                   dashboard-ready agregati
@@ -186,7 +186,7 @@ mora izlagati te portove.
 ## Struktura repozitorijuma
 
 ```
-db/clickhouse/       šema + 18 materialized views
+db/clickhouse/       šema + 20 materialized views
 db/postgres/         agregati, auth, A/B, alerti, job tracking
 packages/shared/     attribution, validacija, UA/bot, statistika, klijenti, metrike
 packages/ingest/     POST /collect, GET /ab/headline, geo, bot filter, spool
@@ -240,6 +240,8 @@ docker compose up -d --scale worker=3
 | Uloge (11) | `packages/api/src/scope.js` — autor vidi samo sebe |
 | GDPR (12) | `packages/api/src/routes/gdpr.js`, consent u SDK-u |
 | Monitoring (13.4) | `monitoring/alerts.yml` — svi traženi alerti |
+| Geografija (dodato) | `mv_geo_daily`, `routes/geo.js`, ekran `/geografija` sa ugrađenom mapom |
+| Kanal po autoru/kategoriji/tagu (dodato) | `*_source_daily` MV-ovi, `routes/channels.js`, ekran `/odakle-klikovi` |
 
 ---
 
@@ -311,6 +313,12 @@ je rizik tačno one vrste na koju upozorava sekcija 15.3 — tiho pogrešnih bro
 `AggregatingMergeTree` + `SimpleAggregateFunction(sum, UInt64)` daje identičan rezultat
 za brojače i korektno spaja uniq state-ove.
 
+**2a. Geografija i presek kanala po entitetu čitaju se iz ClickHouse-a.**
+Geo se ukršta sa autorom, kategorijom, tagom i kanalom. Predračunati sve te kombinacije
+u Postgresu znači eksploziju redova (države × gradovi × kanali × autori × tagovi), a
+ClickHouse baš takve preseke radi u milisekundama. Bez filtera po entitetu ide se na
+`geo_daily` MV; sa filterom na sirove evente.
+
 **2. Jedinstveni posetioci se za višednevne periode čitaju iz ClickHouse-a.**
 Pravilo „dashboard čita Postgres" važi za sve osim ovoga: `unique_visitors` se **ne sabira**.
 Isti čitalac u ponedeljak i sredu je jedan posetilac, a zbir dnevnih redova bi ga izbrojao
@@ -321,6 +329,23 @@ Dnevni i unapred izračunati nedeljni/mesečni redovi u Postgres-u su tačni sam
 **3. Tri kanala izvan osnovne liste: `email`, `messaging`, `app`.**
 Sekcija 5.2 traži da se newsletter i app deep linkovi UTM-uju kako bi izašli iz „lažnog
 direct-a" — što nema smisla ako nemaju svoj kanal da odu u njega.
+
+**Dodato uz spec — geografija i kanal po entitetu.** Spec traži geo lookup na
+ingestion-u (4.2) i traffic source attribution (5), ali nigde ne spaja to dvoje niti
+izlaže geo u dashboard-u. Dodato je:
+
+- `lat`/`lon` uz `country`/`city` — koordinate **centra grada** iz MaxMind-a, zaokružene
+  na 2 decimale. Ne nose više informacije od samog imena grada; služe da mapa može da se
+  nacrta bez spoljne usluge.
+- `mv_geo_daily` — država × grad × kanal po danu. Kanal je u ključu namerno: „odakle
+  geografski dolazi Facebook saobraćaj" je drugo pitanje od „odakle dolazi ukupan".
+- `mv_tag_source_daily` — tagovi su jedini imali rupu; autori i kategorije su presek
+  po kanalu već imali.
+- Ekrani `/geografija` i `/odakle-klikovi`.
+
+Mapa je **ugrađena kao SVG** (`packages/dashboard/lib/world-map.js`, generisano iz
+Natural Earth podataka skriptom `scripts/build-world-map.mjs`). Nema pločica sa tuđeg
+servera: CSP je `default-src 'self'`, a i cela poenta je da podaci ne odlaze trećoj strani.
 
 **Dodato uz spec:** `title` u `pulseMeta`. Bez naslova dashboard prikazuje ID-jeve članaka,
 što nije upotrebljivo za urednika. Polje je opciono — ako izostane, SDK koristi `document.title`.

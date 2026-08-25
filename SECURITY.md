@@ -29,6 +29,7 @@ razvojnoj vrednosti. Slabu tajnu je lakše ne primetiti nego servis koji neće d
 |---|---|
 | **IP adresa** | **Nikad se ne čuva.** Iz nje izlaze samo geo rezultat (država, grad) i dnevno-salted hash |
 | `ip_hash` | HMAC-SHA256 sa saltom koji se menja svakog dana u ponoć UTC — posetilac se ne može pratiti između dana ni iz same baze |
+| `lat` / `lon` | Koordinate **centra grada** iz MaxMind-a, zaokružene na 2 decimale (~1 km). Nose istu informaciju kao ime grada — nisu lokacija korisnika |
 | `visitor_id` | Samo uz consent. Bez consent-a kolona ostaje prazna |
 | Koordinate klikova | Samo uz consent — bez njega nema heatmape |
 | Sirovi eventi | TTL 90 dana; klik eventi 30 dana |
@@ -107,6 +108,15 @@ se generišu u pregledaču (`packages/dashboard/lib/demo.js`). U tom režimu CSP
 
 Demo podaci su izmišljeni i svaki ekran nosi vidljivu oznaku. Ne predstavljaju stvarni
 saobraćaj tvarenasport.com-a.
+
+---
+
+## Mapa
+
+Granice država su **ugrađene u kod** kao SVG putanje (`packages/dashboard/lib/world-map.js`),
+generisane iz Natural Earth podataka (public domain). Dashboard ne poziva nijedan servis
+za pločice mape — CSP `default-src 'self'` to i ne bi dozvolio, a i ne želimo da posetioci
+dashboarda i njihova IP adresa odlaze trećoj strani samo da bi se videla mapa.
 
 ---
 

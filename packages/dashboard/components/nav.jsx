@@ -11,6 +11,8 @@ const ALL_LINKS = [
   { href: '/kategorije', label: 'Kategorije', roles: ['admin', 'editor'] },
   { href: '/tagovi', label: 'Tagovi', roles: ['admin', 'editor'] },
   { href: '/kanali', label: 'Kanali', roles: ['admin', 'editor'] },
+  { href: '/odakle-klikovi', label: 'Odakle klikovi', roles: ['admin', 'editor', 'author'] },
+  { href: '/geografija', label: 'Geografija', roles: ['admin', 'editor', 'author'] },
   { href: '/clanci', label: 'Članci', roles: ['admin', 'editor', 'author'] },
   { href: '/ab-testovi', label: 'A/B testovi', roles: ['admin', 'editor'] },
   { href: '/alerti', label: 'Alerti', roles: ['admin', 'editor'] },

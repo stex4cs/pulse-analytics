@@ -21,6 +21,8 @@ import authorRoutes from './routes/authors.js';
 import contentRoutes from './routes/content.js';
 import sourceRoutes from './routes/sources.js';
 import abRoutes from './routes/ab.js';
+import geoRoutes from './routes/geo.js';
+import channelRoutes from './routes/channels.js';
 import gdprRoutes from './routes/gdpr.js';
 
 const log = createLogger('api');
@@ -74,6 +76,8 @@ await app.register(authorRoutes, { prefix: '/api' });
 await app.register(contentRoutes, { prefix: '/api' });
 await app.register(sourceRoutes, { prefix: '/api' });
 await app.register(abRoutes, { prefix: '/api' });
+await app.register(geoRoutes, { prefix: '/api' });
+await app.register(channelRoutes, { prefix: '/api' });
 await app.register(gdprRoutes, { prefix: '/api' });
 
 app.get('/health', async () => ({ status: 'ok', service: 'api', ts: new Date().toISOString() }));

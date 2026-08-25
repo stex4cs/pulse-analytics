@@ -73,6 +73,59 @@ const HEADLINES = [
 
 const DEVICES = ['mobile', 'desktop', 'tablet'];
 
+/** [drzava, grad, lat, lon, udeo] - Srbija, region, dijaspora. */
+const PLACES = [
+  ['RS', 'Belgrade', 44.81, 20.46, 0.34], ['RS', 'Novi Sad', 45.25, 19.83, 0.09],
+  ['RS', 'Nis', 43.32, 21.90, 0.05], ['RS', 'Kragujevac', 44.01, 20.91, 0.03],
+  ['RS', 'Subotica', 46.10, 19.67, 0.02], ['RS', 'Cacak', 43.89, 20.35, 0.02],
+  ['BA', 'Banja Luka', 44.77, 17.19, 0.04], ['BA', 'Sarajevo', 43.86, 18.41, 0.03],
+  ['ME', 'Podgorica', 42.44, 19.26, 0.03], ['HR', 'Zagreb', 45.81, 15.98, 0.02],
+  ['MK', 'Skopje', 41.99, 21.43, 0.02], ['SI', 'Ljubljana', 46.06, 14.51, 0.01],
+  ['XK', 'Pristina', 42.67, 21.17, 0.01],
+  ['DE', 'Munich', 48.14, 11.58, 0.05], ['DE', 'Frankfurt', 50.11, 8.68, 0.03],
+  ['DE', 'Berlin', 52.52, 13.40, 0.02], ['AT', 'Vienna', 48.21, 16.37, 0.04],
+  ['CH', 'Zurich', 47.37, 8.54, 0.03], ['SE', 'Stockholm', 59.33, 18.07, 0.02],
+  ['FR', 'Paris', 48.86, 2.35, 0.01], ['US', 'Chicago', 41.88, -87.63, 0.02],
+  ['US', 'New York', 40.71, -74.01, 0.01], ['CA', 'Toronto', 43.65, -79.38, 0.01],
+  ['AU', 'Sydney', -33.87, 151.21, 0.01],
+];
+
+/** Rubrike ne dobijaju saobracaj sa istih mesta - to je poenta preseka. */
+const CHANNEL_BIAS = {
+  'fudbal/superliga-srbije': { social_meta: 2.6, search_organic: 0.5 },
+  'fudbal/liga-sampiona': { search_organic: 1.5, social_x: 2.0 },
+  'kosarka/nba': { search_organic: 2.4, social_meta: 0.4 },
+  'kosarka/evroliga': { social_meta: 1.9, google_discover: 0.6 },
+  'tenis/atp': { search_organic: 2.2, social_meta: 0.7 },
+  'ostali-sportovi/odbojka': { google_discover: 3.0, search_organic: 0.4 },
+};
+
+/** Razrada kanala za entitet, sa pomerajem po rubrici. */
+function biasedSources(total, seed, bias = {}) {
+  const rand = rng(seed);
+  const raw = SOURCES.map((s) => ({
+    source: s.source,
+    label: s.label,
+    weight: s.share * (bias[s.source] ?? 1) * (0.85 + rand() * 0.3),
+  }));
+  const sum = raw.reduce((a, b) => a + b.weight, 0);
+  return raw
+    .map((r) => ({ source: r.source, label: r.label, pageviews: Math.round(total * (r.weight / sum)) }))
+    .sort((a, b) => b.pageviews - a.pageviews);
+}
+
+function geoRows(total, seed) {
+  const rand = rng(seed);
+  const sum = PLACES.reduce((a, p) => a + p[4], 0);
+  return PLACES.map((p) => {
+    const pv = Math.round(total * (p[4] / sum) * (0.85 + rand() * 0.3));
+    return {
+      country: p[0], city: p[1], lat: p[2], lon: p[3],
+      pageviews: pv, uniqueVisitors: Math.round(pv * 0.42),
+    };
+  }).filter((r) => r.pageviews > 0);
+}
+
 /** Dnevni obrazac saobraćaja: jutarnji rast, večernji vrh. */
 const HOUR_CURVE = [0.2, 0.1, 0.08, 0.06, 0.07, 0.15, 0.4, 0.7, 0.9, 1.0, 0.95, 0.9,
   0.95, 0.9, 0.85, 0.9, 1.0, 1.1, 1.3, 1.5, 1.4, 1.1, 0.7, 0.4];
@@ -771,6 +824,115 @@ export function demoResponse(path) {
       return sources(days);
 
     case 'ab': return abTests();
+
+    case 'geo': {
+      const total = DAILY_PAGEVIEWS * days;
+      const rows = geoRows(total, days * 5 + 3);
+
+      if (parts[1] === 'cities') {
+        const country = q.get('country');
+        return {
+          range: range(days),
+          cities: rows.filter((r) => !country || r.country === country)
+            .sort((a, b) => b.pageviews - a.pageviews),
+        };
+      }
+
+      if (parts[1] === 'channels') {
+        const totals = new Map();
+        for (const r of rows) totals.set(r.country, (totals.get(r.country) ?? 0) + r.pageviews);
+        return {
+          range: range(days),
+          sources: SOURCES.map((s) => s.source),
+          rows: [...totals].map(([country, tot]) => {
+            // Dijaspora dolazi drugacije: vise Discover-a i direktnog, manje pretrage
+            const bias = country === 'RS'
+              ? {}
+              : { google_discover: 1.6, direct: 1.4, search_organic: 0.7 };
+            const bySource = {};
+            for (const x of biasedSources(tot, country.charCodeAt(0) + country.charCodeAt(1), bias)) {
+              bySource[x.source] = x.pageviews;
+            }
+            return {
+              country,
+              total: tot,
+              bySource,
+              shares: Object.fromEntries(Object.entries(bySource)
+                .map(([k, v]) => [k, tot > 0 ? Math.round((v / tot) * 1000) / 10 : 0])),
+            };
+          }).sort((a, b) => b.total - a.total),
+        };
+      }
+
+      const totals = new Map();
+      for (const r of rows) {
+        const cur = totals.get(r.country) ?? { pageviews: 0, uniqueVisitors: 0 };
+        cur.pageviews += r.pageviews;
+        cur.uniqueVisitors += r.uniqueVisitors;
+        totals.set(r.country, cur);
+      }
+      const grand = [...totals.values()].reduce((a, b) => a + b.pageviews, 0);
+      return {
+        range: range(days),
+        total: grand,
+        countries: [...totals].map(([country, v]) => ({
+          country,
+          pageviews: v.pageviews,
+          sessions: Math.round(v.pageviews / 1.8),
+          uniqueVisitors: v.uniqueVisitors,
+          share: grand > 0 ? Math.round((v.pageviews / grand) * 1000) / 10 : 0,
+        })).sort((a, b) => b.pageviews - a.pageviews),
+      };
+    }
+
+    case 'channels': {
+      const dimension = q.get('dimension') ?? 'author';
+      const entity = q.get('entity');
+      const total = DAILY_PAGEVIEWS * days;
+
+      const entities = dimension === 'author' ? AUTHORS
+        : dimension === 'category' ? CATEGORIES.map((c) => c.full)
+          : TAGS;
+
+      let rows = entities.map((name, i) => {
+        const share = dimension === 'tag' ? Math.max(0.02, 0.09 - i * 0.005) : 1 / entities.length;
+        const tot = Math.max(500, Math.round(total * share));
+        const bias = CHANNEL_BIAS[name] ?? CHANNEL_BIAS[CATEGORIES[i % CATEGORIES.length].full];
+        const list = biasedSources(tot, name.length * 13 + i, bias);
+        const bySource = {};
+        for (const x of list) bySource[x.source] = x.pageviews;
+        const top = list[0];
+        return {
+          entity: name,
+          total: tot,
+          bySource,
+          shares: Object.fromEntries(list.map((x) => [x.source, Math.round((x.pageviews / tot) * 1000) / 10])),
+          topSource: top ? top.source : null,
+          topShare: top ? Math.round((top.pageviews / tot) * 1000) / 10 : 0,
+        };
+      }).sort((a, b) => b.total - a.total);
+
+      if (entity) rows = rows.filter((r) => r.entity === entity);
+
+      const siteTotals = {};
+      for (const r of rows) {
+        for (const [k, v] of Object.entries(r.bySource)) siteTotals[k] = (siteTotals[k] ?? 0) + v;
+      }
+      const siteTotal = Object.values(siteTotals).reduce((a, b) => a + b, 0);
+
+      return {
+        dimension,
+        dimensionLabel: { author: 'Autor', category: 'Kategorija', tag: 'Tag' }[dimension],
+        range: range(days),
+        sources: SOURCES.map((s) => ({
+          source: s.source,
+          label: s.label,
+          pageviews: siteTotals[s.source] ?? 0,
+          share: siteTotal > 0 ? Math.round(((siteTotals[s.source] ?? 0) / siteTotal) * 1000) / 10 : 0,
+        })).sort((a, b) => b.pageviews - a.pageviews),
+        rows,
+      };
+    }
 
     case 'auth':
       if (parts[1] === 'me') return { user: DEMO_USER };

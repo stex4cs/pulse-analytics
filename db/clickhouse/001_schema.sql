@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS pulse.events
     os                  LowCardinality(String),
     country             LowCardinality(String),
     city                String,
+    -- Koordinate CENTRA GRADA iz MaxMind-a, zaokruzene na 2 decimale (~1km).
+    -- Ne nose vise informacije od samog imena grada; sluze za mapu.
+    lat                 Float32,
+    lon                 Float32,
     ip_hash             String,
 
     -- event-specific

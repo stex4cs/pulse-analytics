@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import { fetcher } from '@/lib/api';
 import { Card, DataTable, RangePicker, Loading, ErrorNote, Badge, Note, Button } from '@/components/ui';
 import { PageHeader } from '@/components/nav';
-import { BarList, TimeSeries } from '@/components/charts';
+import { BarList, TimeSeries, Donut } from '@/components/charts';
 import { num, dateLabel } from '@/lib/format';
 
 export default function TagsPage() {
@@ -16,6 +16,11 @@ export default function TagsPage() {
   const { data, error, isLoading } = useSWR(`/tags?days=${days}`, fetcher);
   const { data: detail } = useSWR(
     openTag ? `/tags/${encodeURIComponent(openTag)}?days=${days}` : null,
+    fetcher,
+  );
+  // Odakle dolazi saobracaj za temu - autori i kategorije su to imali, tagovi nisu
+  const { data: tagChannels } = useSWR(
+    openTag ? `/channels?dimension=tag&days=${days}&entity=${encodeURIComponent(openTag)}` : null,
     fetcher,
   );
 
@@ -101,6 +106,35 @@ export default function TagsPage() {
           />
         </Card>
       </div>
+
+      {openTag && tagChannels?.rows?.length > 0 && (
+        <div className="mb-5">
+          <Card
+            title={`Odakle dolaze klikovi za „${openTag}”`}
+            subtitle="Poredi se sa prosekom sajta u redu ispod grafika"
+          >
+            <Donut
+              data={tagChannels.rows[0]
+                ? Object.entries(tagChannels.rows[0].bySource)
+                  .map(([source, pageviews]) => ({
+                    label: tagChannels.sources.find((s) => s.source === source)?.label ?? source,
+                    pageviews,
+                  }))
+                  .sort((a, b) => b.pageviews - a.pageviews)
+                : []}
+              labelKey="label"
+              valueKey="pageviews"
+              height={220}
+            />
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-[var(--text-muted)]">
+              <span>Prosek sajta:</span>
+              {tagChannels.sources.slice(0, 5).map((s) => (
+                <span key={s.source}>{s.label} {s.share}%</span>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {openTag && detail?.articles?.length > 0 && (
         <Card title={`Tekstovi sa tagom „${openTag}”`} subtitle={`Ukupno ${num(detail.totals.pageviews)} pregleda`}>

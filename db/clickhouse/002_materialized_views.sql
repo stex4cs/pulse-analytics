@@ -472,3 +472,76 @@ SELECT toDate(timestamp) AS date, site, article_id, traffic_source, toUInt64(cou
 FROM pulse.events
 WHERE event_type = 'pageview' AND is_bot = 0 AND article_id != ''
 GROUP BY date, site, article_id, traffic_source;
+
+
+-- ---------------------------------------------------------------------------
+-- Geografija: drzava x grad x kanal po danu.
+--
+-- Kanal je u kljucu namerno - pitanje "odakle geografski dolazi Facebook
+-- saobracaj" je drugo pitanje od "odakle dolazi ukupan saobracaj", a urednika
+-- zanimaju oba. Kardinalnost je podnosljiva: gradovi x ~13 kanala po danu.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pulse.geo_daily
+(
+    date            Date,
+    site            LowCardinality(String),
+    country         LowCardinality(String),
+    city            String,
+    traffic_source  LowCardinality(String),
+    lat             SimpleAggregateFunction(anyLast, Float32),
+    lon             SimpleAggregateFunction(anyLast, Float32),
+    pageviews       SimpleAggregateFunction(sum, UInt64),
+    sessions_state  AggregateFunction(uniq, String),
+    visitors_state  AggregateFunction(uniq, String)
+)
+ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(date)
+ORDER BY (date, site, country, city, traffic_source)
+TTL date + INTERVAL 400 DAY;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS pulse.mv_geo_daily TO pulse.geo_daily AS
+SELECT
+    toDate(timestamp)       AS date,
+    site,
+    country,
+    city,
+    traffic_source,
+    anyLast(lat)            AS lat,
+    anyLast(lon)            AS lon,
+    toUInt64(count())       AS pageviews,
+    uniqState(session_id)   AS sessions_state,
+    uniqState(visitor_id)   AS visitors_state
+FROM pulse.events
+WHERE event_type = 'pageview' AND is_bot = 0 AND country != ''
+GROUP BY date, site, country, city, traffic_source;
+
+-- ---------------------------------------------------------------------------
+-- Tag x kanal po danu. Autori i kategorije su to vec imali; tagovi nisu,
+-- pa se na njima nije moglo videti odakle dolazi saobracaj za temu.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pulse.tag_source_daily
+(
+    date            Date,
+    site            LowCardinality(String),
+    tag             LowCardinality(String),
+    traffic_source  LowCardinality(String),
+    pageviews       SimpleAggregateFunction(sum, UInt64),
+    sessions_state  AggregateFunction(uniq, String)
+)
+ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(date)
+ORDER BY (date, site, tag, traffic_source)
+TTL date + INTERVAL 400 DAY;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS pulse.mv_tag_source_daily TO pulse.tag_source_daily AS
+SELECT
+    toDate(timestamp)       AS date,
+    site,
+    tag,
+    traffic_source,
+    toUInt64(count())       AS pageviews,
+    uniqState(session_id)   AS sessions_state
+FROM pulse.events
+ARRAY JOIN tags AS tag
+WHERE event_type = 'pageview' AND is_bot = 0
+GROUP BY date, site, tag, traffic_source;

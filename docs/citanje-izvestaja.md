@@ -76,6 +76,41 @@ Facebook algoritma je ruši preko noći. Rubrika sa razvučenim izvorima je stab
 
 ---
 
+## Geografija
+
+Mapa boji države **kvantilnom** skalom, ne linearnom. Sa ~60% saobraćaja iz Srbije,
+linearna skala bi Srbiju obojila tamno a sve ostalo ostavila praktično bez boje — pa
+se dijaspora, koja je zapravo zanimljiva, ne bi ni videla. Legenda ispisuje stvarne
+granice klasa da skala ne bi obmanula.
+
+**Grad se izvodi iz IP adrese, koja se nikad ne čuva.** Za deo posetilaca — VPN,
+mobilne mreže, korporativni izlazi — grad je netačan ili ga uopšte nema. Zato gradove
+čitajte kao red veličine, ne kao tačan broj.
+
+**Kako se koristi:** presek *kanal × država* pokazuje da dijaspora ne dolazi istim
+putem kao domaći čitaoci — obično znatno manje direktnog dolaska, a više Discover-a i
+Facebook-a. Ako planirate newsletter ili aplikaciju, tu se vidi za koje tržište ima
+smisla.
+
+---
+
+## Odakle klikovi (autori, kategorije, tagovi)
+
+Isti presek za sve tri dimenzije, pa se mogu porediti.
+
+**Udeo se čita drugačije od pregleda.** 60% sa Facebook-a znači nešto sasvim drugo za
+autora sa 200.000 pregleda nego za autora sa 2.000. Zato je prosek sajta uvek prikazan
+iznad tabele — čita se odstupanje od njega, ne apsolutni broj.
+
+**Žuta oznaka = jedan kanal nosi preko 50%.** To nije uspeh nego **rizik**: promena
+Facebook algoritma ili Discover ciklusa ruši taj entitet preko noći. Autor ili rubrika
+sa razvučenim izvorima je stabilnija, čak i sa manjim ukupnim brojem.
+
+**Šta se tipično vidi:** NBA i tenis se pretražuju (Google), domaći fudbal se deli po
+Facebook-u, a teme koje Discover pokupi dolaze u talasima i brzo splasnu.
+
+---
+
 ## Tagovi i trending
 
 **Trending skor** = koliko je tag skočio u poslednjem satu u odnosu na svoj

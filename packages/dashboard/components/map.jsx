@@ -88,6 +88,21 @@ export function GeoMap({
   const [mode, setMode] = useState('bubbles');
   const [hover, setHover] = useState(null);
   const [width, setWidth] = useState(800);
+  const [subdivisions, setSubdivisions] = useState(null);
+
+  /**
+   * Unutrašnje granice (savezne države, pokrajine) idu u zaseban modul i
+   * učitavaju se tek kad se mapa prikaže. Bez njih Rusija, SAD, Brazil i
+   * Australija izgledaju kao prazne mrlje, ali ne treba da opterete ekrane
+   * koji mapu uopšte ne koriste.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    import('@/lib/world-subdivisions')
+      .then((m) => { if (!cancelled) setSubdivisions(m.SUBDIVISION_PATHS); })
+      .catch(() => { /* mapa radi i bez njih */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const svgRef = useRef(null);
   const wrapRef = useRef(null);
@@ -187,6 +202,22 @@ export function GeoMap({
     .filter((c) => c.x >= view.x - 20 && c.x <= view.x + view.w + 20
       && c.y >= view.y - 20 && c.y <= view.y + view.h + 20)
     .sort((a, b) => (b[valueKey] ?? 0) - (a[valueKey] ?? 0)), [cities, view, valueKey]);
+
+  /**
+   * Sloj unutrašnjih granica se pravi jednom po nivou zuma. Pri prevlačenju
+   * se menja samo viewBox, a pxToSvg ostaje isti — bez ovoga bi React na
+   * svaki frejm ponovo gradio ~500 <path> elemenata.
+   */
+  const subdivisionLayer = useMemo(() => {
+    if (!subdivisions) return null;
+    return (
+      <g fill="none" stroke="var(--border)" strokeOpacity={0.85} pointerEvents="none">
+        {subdivisions.map((d, i) => (
+          <path key={i} d={d} strokeWidth={0.4 * pxToSvg} />
+        ))}
+      </g>
+    );
+  }, [subdivisions, pxToSvg]);
 
   /** Natpisi država i gradova, sa izbegavanjem preklapanja. */
   const labels = useMemo(() => {
@@ -346,6 +377,9 @@ export function GeoMap({
             })}
           </g>
 
+          {/* Unutrašnje granice — tanje i svetlije od državnih */}
+          {subdivisionLayer}
+
           {/* Natpisi država — ispod mehurića, da ih krugovi ne prekriju */}
           <g pointerEvents="none">
             {labels.countryLabels.map((l) => (
@@ -366,6 +400,10 @@ export function GeoMap({
             ))}
           </g>
 
+          {/* Mehurići postoje samo u svom režimu — u "Intenzitetu" istu
+              vrednost već nosi boja države, pa bi dva prikaza iste stvari
+              samo smetala jedan drugom. */}
+          {mode === 'bubbles' && (
           <g>
             {visibleCities.map((c) => {
               const r = radiusFor(c[valueKey]);
@@ -392,8 +430,10 @@ export function GeoMap({
               );
             })}
           </g>
+          )}
 
           {/* Natpisi gradova — iznad svega, sa oreolom radi čitljivosti */}
+          {mode === 'bubbles' && (
           <g pointerEvents="none">
             {labels.cityLabels.map((l) => (
               <text
@@ -412,6 +452,7 @@ export function GeoMap({
               </text>
             ))}
           </g>
+          )}
         </svg>
 
         <div className="absolute bottom-3 right-3 flex flex-col overflow-hidden rounded-md border border-[var(--border)] bg-[var(--surface-0)] shadow">
@@ -454,9 +495,11 @@ export function GeoMap({
           </div>
         )}
         <span className="ml-auto">
-          {view.w > PRESETS.europe.w * 0.75
-            ? 'Zumirajte da se ispišu i nazivi gradova.'
-            : 'Klik na državu filtrira gradove ispod.'}
+          {mode === 'choropleth'
+            ? 'Skala je kvantilna — svaka nijansa nosi približno isti broj država.'
+            : view.w > PRESETS.europe.w * 0.75
+              ? 'Zumirajte da se ispišu i nazivi gradova.'
+              : 'Klik na državu filtrira gradove ispod.'}
         </span>
       </div>
     </div>

@@ -113,7 +113,8 @@ saobraćaj tvarenasport.com-a.
 
 ## Mapa
 
-Granice država su **ugrađene u kod** kao SVG putanje (`packages/dashboard/lib/world-map.js`),
+Granice država i unutrašnje granice (savezne države, pokrajine) su **ugrađene u kod**
+kao SVG putanje (`packages/dashboard/lib/world-map.js` i `world-subdivisions.js`),
 generisane iz Natural Earth podataka (public domain). Dashboard ne poziva nijedan servis
 za pločice mape — CSP `default-src 'self'` to i ne bi dozvolio, a i ne želimo da posetioci
 dashboarda i njihova IP adresa odlaze trećoj strani samo da bi se videla mapa.

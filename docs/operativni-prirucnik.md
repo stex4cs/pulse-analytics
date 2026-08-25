@@ -217,6 +217,24 @@ detekciju; salt se menja u ponoć UTC, pa se posetilac ne može pratiti između 
 
 ## Održavanje
 
+### Redeploy servisa
+
+API i dashboard se mogu redeploy-ovati bez diranja nginx-a — nginx ih razrešava
+preko Docker DNS-a u toku rada:
+
+```bash
+docker compose up -d --build api dashboard
+```
+
+**Ingest je izuzetak.** Njegov `upstream` blok zadržava `keepalive` i `least_conn`
+(vredi više na 2000 req/s nego automatski re-resolve), a nginx OSS razrešava
+upstream servere samo pri startu. Posle redeploy-a ingest-a:
+
+```bash
+docker compose up -d --build ingest-1 ingest-2
+docker compose restart nginx          # bez ovoga: 502 na /collect
+```
+
 ### Rotacija tajni
 
 `IP_HASH_SECRET` — promena je bezbedna, prekida povezivanje hash-eva starih i novih dana

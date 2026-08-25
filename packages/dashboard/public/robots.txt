@@ -1,0 +1,3 @@
+# Pulse dashboard je interni alat - nema sta da se indeksira.
+User-agent: *
+Disallow: /

@@ -94,7 +94,7 @@ export async function detectSpikes() {
   for (const site of config.sites) {
     // Poslednji ZAVRSEN minut - tekuci je jos nepotpun
     const rows = await chQuery(`
-      SELECT formatDateTime(minute, '%Y-%m-%dT%H:%M:00Z') AS minute_utc,
+      SELECT formatDateTime(minute, '%Y-%m-%dT%H:%i:00Z') AS minute_utc,
              sum(pageviews) AS pageviews
         FROM pulse.minute_pulse
        WHERE site = {site:String}

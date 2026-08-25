@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 const IS_DEMO = process.env.NEXT_PUBLIC_PULSE_DEMO === '1';
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8081';
 
@@ -38,6 +40,12 @@ const nextConfig = {
   poweredByHeader: false,
   // 'standalone' je za Docker; Vercel ga ignorise i koristi svoj build
   output: process.env.VERCEL ? undefined : 'standalone',
+  experimental: {
+    // npm workspaces hoist-uje zavisnosti u koren monorepa. Bez ovoga Next
+    // trazi node_modules samo unutar packages/dashboard i standalone izlaz
+    // izadje bez ijedne zavisnosti.
+    outputFileTracingRoot: path.join(import.meta.dirname, '..', '..'),
+  },
   env: {
     NEXT_PUBLIC_API_URL: API_URL,
     NEXT_PUBLIC_PULSE_DEMO: IS_DEMO ? '1' : '0',

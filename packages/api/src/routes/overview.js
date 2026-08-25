@@ -25,8 +25,10 @@ export default async function overviewRoutes(app) {
         FROM pulse.minute_pulse
        WHERE site = {site:String} AND minute >= now() - INTERVAL 5 MINUTE`, { site });
 
+    // Alias se NE sme zvati `minute`: ClickHouse razresava SELECT alias i u
+    // WHERE klauzuli, pa bi String pregazio pravu DateTime kolonu.
     const perMinute = await chQuery(`
-      SELECT formatDateTime(minute, '%H:%M')  AS minute,
+      SELECT formatDateTime(minute, '%H:%i')  AS label,
              sum(pageviews)                   AS pageviews
         FROM pulse.minute_pulse
        WHERE site = {site:String} AND minute >= now() - INTERVAL 30 MINUTE
@@ -60,7 +62,7 @@ export default async function overviewRoutes(app) {
     return {
       activeVisitors: num(active?.active_visitors),
       pageviews5m: num(active?.pageviews_5m),
-      perMinute: perMinute.map((r) => ({ minute: r.minute, pageviews: num(r.pageviews) })),
+      perMinute: perMinute.map((r) => ({ minute: r.label, pageviews: num(r.pageviews) })),
       topArticles: topArticles.map((r) => ({
         articleId: r.article_id,
         title: r.title || r.article_id,

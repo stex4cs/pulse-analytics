@@ -288,8 +288,9 @@ export default async function contentRoutes(app) {
     authorScope(req.user, article.author);
 
     // Krivа pregleda od objave
+    // Isti razlog kao u /realtime: alias ne sme da nosi ime kolone.
     const series = await chQuery(`
-      SELECT formatDateTime(hour, '%Y-%m-%dT%H:00:00Z') AS hour, sum(pageviews) AS pageviews
+      SELECT formatDateTime(hour, '%Y-%m-%dT%H:00:00Z') AS label, sum(pageviews) AS pageviews
         FROM pulse.article_hourly
        WHERE site = {site:String} AND article_id = {id:String}
        GROUP BY hour ORDER BY hour`, { site, id: articleId });
@@ -343,7 +344,7 @@ export default async function contentRoutes(app) {
         readCompletionRate: num(article.read_completion_rate),
         trendingScore: num(article.trending_score),
       },
-      series: series.map((r) => ({ hour: r.hour, pageviews: num(r.pageviews) })),
+      series: series.map((r) => ({ hour: r.label, pageviews: num(r.pageviews) })),
       sourceBreakdown: Object.entries(article.source_breakdown ?? {})
         .map(([source, pageviews]) => ({ source, label: SOURCE_LABELS[source] ?? source, pageviews: num(pageviews) }))
         .sort((a, b) => b.pageviews - a.pageviews),

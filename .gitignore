@@ -15,3 +15,6 @@ coverage/
 # Repo je javan, pa spec ostaje lokalno. Ako treba da ide uz kod, obrisite
 # ovu liniju ili prebacite repo na private.
 pulse-build-spec.md
+
+# Lokalni override sa objavljenim portovima - ne sme na produkciju
+docker-compose.override.yml

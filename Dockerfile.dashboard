@@ -11,7 +11,6 @@ ARG NEXT_PUBLIC_API_URL=http://localhost:8081
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages/dashboard/node_modules ./packages/dashboard/node_modules
 COPY package.json ./
 COPY packages/dashboard ./packages/dashboard
 RUN npm run build --workspace @pulse/dashboard
@@ -22,9 +21,15 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN apk add --no-cache tini && addgroup -g 1001 nodejs && adduser -u 1001 -G nodejs -S nextjs
 
+# Uz outputFileTracingRoot postavljen na koren monorepa, standalone izlaz
+# zadrzava strukturu workspace-a: /app/node_modules + /app/packages/dashboard/.
 COPY --from=builder --chown=nextjs:nodejs /app/packages/dashboard/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/packages/dashboard/.next/static ./packages/dashboard/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/packages/dashboard/public ./packages/dashboard/public
+
+# Standalone server.js je CommonJS. Root package.json monorepa ima
+# "type": "module", sto bi ga naguralo u ESM i srusilo na prvom require().
+RUN printf '{"name":"pulse-dashboard","private":true}' > /app/package.json
 
 USER nextjs
 EXPOSE 3000

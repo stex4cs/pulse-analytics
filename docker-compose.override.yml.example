@@ -1,0 +1,51 @@
+# Lokalni razvoj: objavljuje portove na host, da ne morate da dirate hosts fajl
+# niti da šaljete Host zaglavlje kroz nginx.
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   docker compose up -d
+#
+# Docker Compose sam učitava docker-compose.override.yml, pa se komande ne menjaju.
+#
+# Portovi baza su namerno pomereni (18123, 15432, 16379) da se ne sudare sa
+# drugim projektima na istoj mašini — podrazumevani 5432/6379/8123 su prva stvar
+# koju zauzme bilo koji drugi lokalni stack. Ingest je na 8090 jer 8080 obično
+# drži XAMPP/Apache.
+#
+# NA PRODUKCIJI OVAJ FAJL NE SME DA POSTOJI. Baze bi bile izložene, a ceo smisao
+# postavke je da im se prilazi samo iz Docker mreže.
+
+services:
+  dashboard:
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  api:
+    ports:
+      - "127.0.0.1:8081:8081"
+
+  ingest-1:
+    ports:
+      - "127.0.0.1:8090:8080"
+
+  # Baze — za DBeaver / psql / clickhouse-client i za `npm run dev:*`
+  clickhouse:
+    ports:
+      - "127.0.0.1:18123:8123"
+      - "127.0.0.1:19000:9000"
+
+  postgres:
+    ports:
+      - "127.0.0.1:15432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:16379:6379"
+
+  # Worker i cron izlažu samo metrike
+  worker:
+    ports:
+      - "127.0.0.1:9101:9101"
+
+  cron:
+    ports:
+      - "127.0.0.1:9102:9102"

@@ -51,61 +51,135 @@ Ako Redis padne, ingest piše u lokalni append-only fajl i worker ga kasnije pok
 
 ---
 
-## Brzi start
+## Brzi start (lokalno)
 
-### 1. Podešavanje
+Potreban je samo Docker. Testirano na Docker 29 / Windows + WSL2.
+
+### 1. Tajne
 
 ```bash
 cp .env.example .env
-# Obavezno postavite: CLICKHOUSE_PASSWORD, POSTGRES_PASSWORD, IP_HASH_SECRET, JWT_SECRET
-# Generisanje tajni:  openssl rand -base64 48
 ```
 
-Za geo lookup preuzmite `GeoLite2-City.mmdb` (besplatan MaxMind nalog) u `geoip/`.
-Bez toga sve radi, samo se država vadi iz CDN zaglavlja ako postoje.
+Zameniti četiri `change_me` vrednosti u `.env`:
+`CLICKHOUSE_PASSWORD`, `POSTGRES_PASSWORD`, `IP_HASH_SECRET`, `JWT_SECRET`.
+
+```bash
+# Generisanje jedne tajne
+node -e "console.log(require('crypto').randomBytes(36).toString('base64url'))"
+```
+
+Servisi **odbijaju da se pokrenu** ako su tajne ostale na razvojnoj vrednosti —
+to je namerno.
 
 ### 2. Podizanje
 
 ```bash
 docker compose up -d --build
-docker compose logs -f worker          # prati da li batch-evi prolaze
 ```
 
-ClickHouse i Postgres izvršavaju `db/*/*.sql` pri prvom startu. Za ručnu migraciju
-na postojećoj instanci:
+Prvi put traje nekoliko minuta (gradi 6 slika). ClickHouse i Postgres sami
+izvršavaju migracije iz `db/`. Provera:
 
 ```bash
-npm install
-npm run migrate
+docker compose ps
 ```
+
+Svih 12 servisa treba da bude `Up`; `clickhouse`, `postgres`, `redis`, `api`,
+`ingest-1`, `ingest-2` i `dashboard` još i `(healthy)`.
 
 ### 3. Admin nalog
 
 ```bash
-node scripts/seed.mjs --admin=urednik@tvarenasport.com --password='...'
+docker compose exec api node scripts/seed.mjs   --admin=urednik@tvarenasport.com --password='IzaberiteJakuLozinku123!'
 ```
 
-### 4. Provera lanca
+### 4. Provera da lanac radi
 
 ```bash
-npm run smoke        # pošalje event i proveri da je stigao do ClickHouse-a
+docker compose exec api node scripts/smoke-test.mjs --endpoint=http://nginx
 ```
 
-Smoke test proverava i obradu na serveru: attribution, UA parsing, izvedeni
-`category_root`, consent i materialized views.
+Pošalje tri eventa i prati ih kroz Redis → worker → ClickHouse → materialized views,
+uz proveru attribution-a, UA parsinga i consent-a.
 
-### 5. Dashboard
+### 5. Otvaranje
 
-`http://localhost:3000` (u produkciji `analitika.tvarenasport.com`).
-Grafana je na `:3001`.
-
-### Lokalni razvoj bez saobraćaja
+Iza nginx-a servisi se razlikuju po `Host` zaglavlju, što lokalno smeta. Zato:
 
 ```bash
-node scripts/seed.mjs --demo=14                    # 14 dana sintetičkog saobraćaja
-npm run -w @pulse/cron run-once -- articles 30
-npm run -w @pulse/cron run-once -- daily 2026-08-10 2026-08-24
+cp docker-compose.override.yml.example docker-compose.override.yml
+docker compose up -d
 ```
+
+Compose sam učitava override i objavljuje portove na `127.0.0.1`:
+
+| Adresa | Šta |
+|---|---|
+| http://localhost:3000 | **Dashboard** |
+| http://localhost:8081 | Dashboard API |
+| http://localhost:8090 | Ingestion (`/collect`) |
+| http://localhost:3001 | Grafana (admin / `GRAFANA_PASSWORD`) |
+| localhost:18123 | ClickHouse HTTP |
+| localhost:15432 | Postgres |
+| localhost:16379 | Redis |
+
+Portovi baza su pomereni (18123 / 15432 / 16379) da se ne sudare sa drugim
+lokalnim projektima, a ingest je na 8090 jer 8080 obično drži XAMPP.
+
+Prijavite se podacima iz koraka 3.
+
+Provera kroz nginx, onako kako radi u produkciji:
+
+```bash
+curl -H "Host: analitika.tvarenasport.com" http://localhost/login
+curl -H "Host: pulse.tvarenasport.com"     http://localhost/health
+```
+
+> `docker-compose.override.yml` je u `.gitignore` i **ne sme da postoji na
+> produkciji** — tamo se bazama prilazi samo iz Docker mreže.
+
+### 6. Podaci za probu
+
+Bez saobraćaja je dashboard prazan. Sintetički podaci:
+
+```bash
+docker compose exec api  node scripts/seed.mjs --demo=5
+docker compose exec cron node packages/cron/src/cli.js articles 30
+docker compose exec cron node packages/cron/src/cli.js daily 2026-08-20 2026-08-25
+docker compose exec cron node packages/cron/src/cli.js hourly 200
+docker compose exec cron node packages/cron/src/cli.js trending
+```
+
+Cron sve ovo radi sam svakih 5 minuta — ovo je samo da ne čekate.
+
+### Gašenje
+
+```bash
+docker compose down          # zaustavi, podaci ostaju
+docker compose down -v       # obriši i podatke
+```
+
+---
+
+## Razvoj bez Dockera
+
+Baze u Dockeru, servisi lokalno uz `--watch`:
+
+```bash
+npm install
+docker compose up -d clickhouse postgres redis
+npm run migrate
+
+npm run dev:ingest      # :8080
+npm run dev:worker
+npm run dev:api         # :8081
+npm run dev:dashboard   # :3000
+```
+
+Za to `.env` mora imati `CLICKHOUSE_URL=http://localhost:8123`,
+`POSTGRES_HOST=localhost` i `REDIS_URL=redis://localhost:6379`, a compose
+mora izlagati te portove.
 
 ---
 
@@ -192,6 +266,8 @@ Ceo lanac je pokrenut protiv stvarnih ClickHouse, Postgres i Redis instanci, ne 
 | Dashboard | Next.js build prolazi, svih 12 ruta |
 | SDK | 2,80 KB gzipped (budžet 5 KB) |
 | Testovi | 90 unit testova prolazi |
+| **Ceo Docker Compose stack** | svih 12 servisa `Up`, 7 sa healthcheck-om `healthy` |
+| Smoke test kroz nginx | ceo lanac radi u produkcijskoj postavci, ne samo pojedinačno |
 
 Greške pronađene i ispravljene tokom ove verifikacije, koje se ne bi videle bez pokretanja:
 
@@ -204,6 +280,23 @@ Greške pronađene i ispravljene tokom ove verifikacije, koje se ne bi videle be
 4. **`argMinState` nad `LowCardinality(String)`** pravi state koji se ne poklapa sa deklarisanim tipom.
 5. **Fastify 5 traži `loggerInstance`** za gotovu pino instancu — sa `logger` servis uopšte ne startuje.
 6. **Negativan `limit`** je tiho vraćao 1 red umesto podrazumevanih 50.
+
+Druga runda, pri prvom pravom `docker compose up`:
+
+7. **`%M` u ClickHouse-u je ime meseca, ne minut** — real-time grafik je pokazivao
+   `06:August`, a spike detekcija je pravila neispravan `minute_utc` koji ide pravo
+   u Postgres. Minut je `%i`.
+8. **Alias koji senči kolonu, opet** — `formatDateTime(minute, …) AS minute` je rušio
+   `/realtime` na istoj klasi greške kao ranije `toString(date) AS date`.
+9. **Healthcheck na `localhost`** — u kontejneru se razrešava na IPv6 `::1`, a servisi
+   vežu IPv4. ClickHouse je bio proglašen nezdravim iako radi.
+10. **Healthcheck bez `start_period`** — ClickHouse pri prvom startu izvršava migracije
+    preko privremenog servera; te sekunde su se brojale kao kvarovi.
+11. **nginx keširа IP upstream-a sa starta** — svaki redeploy API-ja ga je obarao u 502.
+    Sada razrešava preko Docker DNS-a u toku rada.
+12. **Next.js standalone build** nije povlačio hoist-ovane zavisnosti (`outputFileTracingRoot`),
+    a root `package.json` sa `"type": "module"` je rušio CommonJS `server.js`.
+13. **`.env` se nije mogao `source`-ovati** — cron izrazi sa `*` su glob-ovali u imena fajlova.
 
 ---
 

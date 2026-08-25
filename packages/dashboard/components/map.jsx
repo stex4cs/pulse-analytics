@@ -18,9 +18,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  WORLD_VIEWBOX, EUROPE_VIEWBOX, COUNTRY_PATHS, COUNTRY_NAMES, projectLatLon,
+  WORLD_VIEWBOX, EUROPE_VIEWBOX, COUNTRY_PATHS, COUNTRY_NAMES, COUNTRY_SHORT,
+  COUNTRY_CENTROIDS, COUNTRY_BOUNDS, projectLatLon,
 } from '@/lib/world-map';
-import { num } from '@/lib/format';
+import { num, compact } from '@/lib/format';
 
 const RAMP = ['var(--seq-100)', 'var(--seq-250)', 'var(--seq-400)', 'var(--seq-550)', 'var(--seq-700)'];
 
@@ -34,8 +35,12 @@ const PRESETS = {
   world: parseView(WORLD_VIEWBOX),
 };
 
-const MIN_W = 12;     // najdublji zum
+const MIN_W = 12;
 const MAX_W = PRESETS.world.w;
+
+// Natpisi u px, nezavisno od zuma
+const COUNTRY_FONT_PX = 11;
+const CITY_FONT_PX = 10;
 
 function quantileBreaks(values, classes) {
   const sorted = [...values].filter((v) => v > 0).sort((a, b) => a - b);
@@ -50,6 +55,25 @@ function classOf(value, breaks) {
   while (i < breaks.length && value >= breaks[i]) i++;
   return i;
 }
+
+/**
+ * Pohlepno raspoređivanje natpisa: ide se od najvažnijeg, natpis se odbacuje
+ * ako se preklapa sa već postavljenim. Bolje nego prikazati sve pa da se
+ * imena preklapaju u nečitljivu kašu.
+ */
+function makePlacer() {
+  const placed = [];
+  return (box) => {
+    for (const p of placed) {
+      if (box.x1 > p.x0 && box.x0 < p.x1 && box.y1 > p.y0 && box.y0 < p.y1) return false;
+    }
+    placed.push(box);
+    return true;
+  };
+}
+
+/** Gruba procena širine teksta — dovoljna za sprečavanje preklapanja. */
+const textWidth = (text, fontPx) => text.length * fontPx * 0.55;
 
 export function GeoMap({
   countries = [],
@@ -68,8 +92,9 @@ export function GeoMap({
   const svgRef = useRef(null);
   const wrapRef = useRef(null);
   const drag = useRef(null);
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
-  // Poluprečnik mehurića treba da ostane isti na ekranu bez obzira na zum
   useEffect(() => {
     const el = wrapRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return undefined;
@@ -77,6 +102,41 @@ export function GeoMap({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  const zoomAt = useCallback((factor, anchor) => {
+    setView((v) => {
+      const w = Math.min(MAX_W, Math.max(MIN_W, v.w * factor));
+      const k = w / v.w;
+      const h = v.h * k;
+      const a = anchor ?? { x: v.x + v.w / 2, y: v.y + v.h / 2 };
+      return { x: a.x - (a.x - v.x) * k, y: a.y - (a.y - v.y) * k, w, h };
+    });
+  }, []);
+
+  /**
+   * Wheel MORA da ide kao nativni listener sa { passive: false }.
+   * React kači wheel pasivno na koren dokumenta, pa `e.preventDefault()` u
+   * React handleru nema efekta — zumira se mapa, ali se istovremeno skroluje
+   * i stranica.
+   */
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return undefined;
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const v = viewRef.current;
+      const anchor = {
+        x: v.x + ((e.clientX - rect.left) / rect.width) * v.w,
+        y: v.y + ((e.clientY - rect.top) / rect.height) * v.h,
+      };
+      zoomAt(e.deltaY > 0 ? 1.18 : 1 / 1.18, anchor);
+    };
+
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  }, [zoomAt]);
 
   const byCountry = useMemo(
     () => new Map(countries.map((c) => [c.country, c])),
@@ -95,39 +155,13 @@ export function GeoMap({
 
   const pxToSvg = width > 0 ? view.w / width : 1;
 
-  /** Površina kruga ∝ vrednosti, pa najveći grad ne pojede ostale. */
   const radiusFor = (value) => {
     if (!maxCity || !value) return 0;
-    const px = 4 + Math.sqrt(value / maxCity) * 26;
-    return px * pxToSvg;
-  };
-
-  const clientToSvg = useCallback((clientX, clientY) => {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
-    return {
-      x: view.x + ((clientX - rect.left) / rect.width) * view.w,
-      y: view.y + ((clientY - rect.top) / rect.height) * view.h,
-    };
-  }, [view]);
-
-  const zoomAt = useCallback((factor, anchor) => {
-    setView((v) => {
-      const w = Math.min(MAX_W, Math.max(MIN_W, v.w * factor));
-      const k = w / v.w;
-      const h = v.h * k;
-      const a = anchor ?? { x: v.x + v.w / 2, y: v.y + v.h / 2 };
-      return { x: a.x - (a.x - v.x) * k, y: a.y - (a.y - v.y) * k, w, h };
-    });
-  }, []);
-
-  const onWheel = (e) => {
-    e.preventDefault();
-    zoomAt(e.deltaY > 0 ? 1.18 : 1 / 1.18, clientToSvg(e.clientX, e.clientY));
+    return (4 + Math.sqrt(value / maxCity) * 26) * pxToSvg;
   };
 
   const onPointerDown = (e) => {
-    drag.current = { startX: e.clientX, startY: e.clientY, view };
+    drag.current = { startX: e.clientX, startY: e.clientY, view, moved: false };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
 
@@ -138,6 +172,7 @@ export function GeoMap({
     if (!rect) return;
     const dx = ((e.clientX - d.startX) / rect.width) * d.view.w;
     const dy = ((e.clientY - d.startY) / rect.height) * d.view.h;
+    if (Math.abs(e.clientX - d.startX) > 3 || Math.abs(e.clientY - d.startY) > 3) d.moved = true;
     setView({ ...d.view, x: d.view.x - dx, y: d.view.y - dy });
   };
 
@@ -146,12 +181,79 @@ export function GeoMap({
     e.currentTarget.releasePointerCapture?.(e.pointerId);
   };
 
-  const visibleCities = cities
+  const visibleCities = useMemo(() => cities
     .filter((c) => c.lat || c.lon)
     .map((c) => ({ ...c, ...projectLatLon(c.lat, c.lon) }))
     .filter((c) => c.x >= view.x - 20 && c.x <= view.x + view.w + 20
       && c.y >= view.y - 20 && c.y <= view.y + view.h + 20)
-    .sort((a, b) => (b[valueKey] ?? 0) - (a[valueKey] ?? 0));
+    .sort((a, b) => (b[valueKey] ?? 0) - (a[valueKey] ?? 0)), [cities, view, valueKey]);
+
+  /** Natpisi država i gradova, sa izbegavanjem preklapanja. */
+  const labels = useMemo(() => {
+    const fits = makePlacer();
+    const countryFont = COUNTRY_FONT_PX * pxToSvg;
+    const cityFont = CITY_FONT_PX * pxToSvg;
+
+    const inView = (x, y) => x >= view.x && x <= view.x + view.w
+      && y >= view.y && y <= view.y + view.h;
+
+    /** Postavlja natpis države ako staje u nju i ne sudara se sa već postavljenim. */
+    const placeCountry = (code, hasData) => {
+      const centroid = COUNTRY_CENTROIDS[code];
+      const b = COUNTRY_BOUNDS[code];
+      if (!centroid || !b) return null;
+
+      const [x, y] = centroid;
+      if (!inView(x, y)) return null;
+
+      const text = COUNTRY_SHORT[code] ?? code;
+      // Ako natpis ne staje u samu državu, bolje ga nema
+      if ((b[2] - b[0]) / pxToSvg < textWidth(text, COUNTRY_FONT_PX) * 0.85) return null;
+
+      const w = textWidth(text, countryFont);
+      if (!fits({
+        x0: x - w / 2, x1: x + w / 2,
+        y0: y - countryFont * 0.8, y1: y + countryFont * 0.5,
+      })) return null;
+
+      return { key: `n-${code}`, x, y, text, font: countryFont, hasData };
+    };
+
+    const countryLabels = [];
+
+    // Redosled je bitan. Prvo države SA podacima: na srednjem zumu je "Srbija"
+    // korisnija od "Beograd", a centroid zemlje i njena prestonica su tu toliko
+    // blizu da se natpisi sudaraju. Na dubljem zumu su dovoljno razmaknuti pa
+    // se ispišu oba.
+    const withData = [...byCountry.keys()]
+      .sort((a, b) => (byCountry.get(b)?.[valueKey] ?? 0) - (byCountry.get(a)?.[valueKey] ?? 0));
+    for (const code of withData) {
+      const l = placeCountry(code, true);
+      if (l) countryLabels.push(l);
+    }
+
+    // Gradovi se ispisuju tek kad ih ima smisla razlikovati
+    const cityLabels = [];
+    if (view.w <= PRESETS.europe.w * 0.75) {
+      for (const c of visibleCities.slice(0, 60)) {
+        const r = radiusFor(c[valueKey]);
+        const w = textWidth(c.city, cityFont);
+        const y = c.y - r - cityFont * 0.45;
+        if (fits({ x0: c.x - w / 2, x1: c.x + w / 2, y0: y - cityFont, y1: y + cityFont * 0.3 })) {
+          cityLabels.push({ key: `c-${c.country}-${c.city}`, x: c.x, y, text: c.city, font: cityFont });
+        }
+      }
+    }
+
+    // Tek na kraju države bez podataka - one su samo kontekst
+    for (const code of Object.keys(COUNTRY_CENTROIDS)) {
+      if (byCountry.has(code)) continue;
+      const l = placeCountry(code, false);
+      if (l) countryLabels.push(l);
+    }
+
+    return { cityLabels, countryLabels };
+  }, [visibleCities, byCountry, view, pxToSvg, valueKey, maxCity]);
 
   const btn = 'rounded px-2.5 py-1 text-xs font-medium transition-colors';
   const btnOn = 'bg-[var(--series-1)] text-white';
@@ -193,14 +295,17 @@ export function GeoMap({
         </span>
       </div>
 
-      <div ref={wrapRef} className="relative overflow-hidden rounded-md border border-[var(--border)] bg-[var(--surface-1)]">
+      <div
+        ref={wrapRef}
+        className="relative overflow-hidden rounded-md border border-[var(--border)] bg-[var(--surface-1)]"
+        style={{ overscrollBehavior: 'contain' }}
+      >
         <svg
           ref={svgRef}
           viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
-          className="block h-auto w-full cursor-grab touch-none active:cursor-grabbing"
+          className="block h-auto w-full cursor-grab touch-none select-none active:cursor-grabbing"
           role="img"
           aria-label={`Mapa: ${valueLabel} po državama i gradovima`}
-          onWheel={onWheel}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
@@ -213,7 +318,6 @@ export function GeoMap({
               const cls = classOf(value, breaks);
               const isSelected = selectedCountry === code;
 
-              // U režimu mehurića podloga je neutralna, kao u GA
               const fill = mode === 'choropleth' && cls >= 0
                 ? RAMP[Math.min(cls, RAMP.length - 1)]
                 : 'var(--surface-2)';
@@ -233,10 +337,33 @@ export function GeoMap({
                     sub: row.share !== undefined ? `${row.share}% ukupnog saobraćaja` : null,
                   })}
                   onMouseLeave={() => setHover(null)}
-                  onClick={() => row && onSelectCountry?.(isSelected ? null : code)}
+                  onClick={() => {
+                    if (drag.current?.moved) return;   // prevlačenje nije klik
+                    if (row) onSelectCountry?.(isSelected ? null : code);
+                  }}
                 />
               );
             })}
+          </g>
+
+          {/* Natpisi država — ispod mehurića, da ih krugovi ne prekriju */}
+          <g pointerEvents="none">
+            {labels.countryLabels.map((l) => (
+              <text
+                key={l.key}
+                x={l.x}
+                y={l.y}
+                textAnchor="middle"
+                fontSize={l.font}
+                fill={l.hasData ? 'var(--text-secondary)' : 'var(--text-muted)'}
+                stroke="var(--surface-1)"
+                strokeWidth={3 * pxToSvg}
+                paintOrder="stroke"
+                style={{ fontWeight: l.hasData ? 600 : 400 }}
+              >
+                {l.text}
+              </text>
+            ))}
           </g>
 
           <g>
@@ -265,9 +392,28 @@ export function GeoMap({
               );
             })}
           </g>
+
+          {/* Natpisi gradova — iznad svega, sa oreolom radi čitljivosti */}
+          <g pointerEvents="none">
+            {labels.cityLabels.map((l) => (
+              <text
+                key={l.key}
+                x={l.x}
+                y={l.y}
+                textAnchor="middle"
+                fontSize={l.font}
+                fill="var(--text-primary)"
+                stroke="var(--surface-1)"
+                strokeWidth={3 * pxToSvg}
+                paintOrder="stroke"
+                style={{ fontWeight: 600 }}
+              >
+                {l.text}
+              </text>
+            ))}
+          </g>
         </svg>
 
-        {/* Zum kontrole, kao u GA — dole desno */}
         <div className="absolute bottom-3 right-3 flex flex-col overflow-hidden rounded-md border border-[var(--border)] bg-[var(--surface-0)] shadow">
           <button type="button" onClick={() => zoomAt(1 / 1.4)} aria-label="Uvećaj"
             className="px-2.5 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-2)]">+</button>
@@ -303,13 +449,13 @@ export function GeoMap({
               {RAMP.map((c) => <span key={c} className="h-2.5 w-8" style={{ background: c }} />)}
             </span>
             <span className="tabular">
-              {breaks.length ? `< ${num(breaks[0])} … ≥ ${num(breaks[breaks.length - 1])}` : '—'}
+              {breaks.length ? `< ${compact(breaks[0])} … ≥ ${compact(breaks[breaks.length - 1])}` : '—'}
             </span>
           </div>
         )}
         <span className="ml-auto">
-          {mode === 'choropleth'
-            ? 'Skala je kvantilna — svaka nijansa nosi približno isti broj država.'
+          {view.w > PRESETS.europe.w * 0.75
+            ? 'Zumirajte da se ispišu i nazivi gradova.'
             : 'Klik na državu filtrira gradove ispod.'}
         </span>
       </div>

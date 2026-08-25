@@ -75,6 +75,21 @@ function ringArea(points) {
   return Math.abs(area / 2);
 }
 
+/** Centroid poligona (ne prosek tacaka - to bi vukla gusto uzorkovana obala). */
+function ringCentroid(points) {
+  let cx = 0;
+  let cy = 0;
+  let a = 0;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const f = points[j][0] * points[i][1] - points[i][0] * points[j][1];
+    cx += (points[j][0] + points[i][0]) * f;
+    cy += (points[j][1] + points[i][1]) * f;
+    a += f;
+  }
+  if (a === 0) return points[0];
+  return [cx / (3 * a), cy / (3 * a)];
+}
+
 function ringToPath(points) {
   const projected = points.map(project);
   if (ringArea(projected) < MIN_AREA) return '';
@@ -102,7 +117,21 @@ const alpha2ToRegion = new Map(isoList.map((c) => [c['alpha-2'], c.region || 'Ot
 
 const arcs = decodeArcs(topology);
 const countries = {};
+const shapes = new Map();   // alpha2 -> [{ centroid, area, bounds }]
 let skipped = 0;
+
+/** Pamti geometriju prstena da bi se posle izveli centroid i granice. */
+function collect(code, projected) {
+  const area = ringArea(projected);
+  const xs = projected.map((p) => p[0]);
+  const ys = projected.map((p) => p[1]);
+  if (!shapes.has(code)) shapes.set(code, []);
+  shapes.get(code).push({
+    centroid: ringCentroid(projected),
+    area,
+    bounds: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
+  });
+}
 
 for (const geom of topology.objects.countries.geometries) {
   const alpha2 = numericToAlpha2.get(String(Number(geom.id)));
@@ -112,8 +141,12 @@ for (const geom of topology.objects.countries.geometries) {
   const parts = [];
   for (const polygon of polygons) {
     for (const ring of polygon) {
-      const d = ringToPath(ringToPoints(arcs, ring));
-      if (d) parts.push(d);
+      const pts = ringToPoints(arcs, ring);
+      const d = ringToPath(pts);
+      if (d) {
+        parts.push(d);
+        collect(alpha2, pts.map(project));
+      }
     }
   }
   if (parts.length) countries[alpha2] = parts.join('');
@@ -129,18 +162,56 @@ if (kosovo) {
   const parts = [];
   for (const polygon of polygons) {
     for (const ring of polygon) {
-      const d = ringToPath(ringToPoints(arcs, ring));
-      if (d) parts.push(d);
+      const pts = ringToPoints(arcs, ring);
+      const d = ringToPath(pts);
+      if (d) {
+        parts.push(d);
+        collect('RS', pts.map(project));
+      }
     }
   }
   if (parts.length) countries.RS = (countries.RS ?? '') + parts.join('');
 }
 
+/**
+ * Kratka imena za natpise na mapi. ISO imena su za tabele; na mapi
+ * "United Kingdom of Great Britain and Northern Ireland" ne staje nigde.
+ */
+const SHORT_NAMES = {
+  GB: 'V. Britanija', US: 'SAD', RU: 'Rusija', DE: 'Nemačka', AT: 'Austrija',
+  CH: 'Švajcarska', SE: 'Švedska', FR: 'Francuska', IT: 'Italija', ES: 'Španija',
+  NL: 'Holandija', BE: 'Belgija', PL: 'Poljska', CZ: 'Češka', SK: 'Slovačka',
+  HU: 'Mađarska', RO: 'Rumunija', BG: 'Bugarska', GR: 'Grčka', TR: 'Turska',
+  RS: 'Srbija', HR: 'Hrvatska', BA: 'BiH', ME: 'Crna Gora', MK: 'S. Makedonija',
+  SI: 'Slovenija', AL: 'Albanija', NO: 'Norveška', DK: 'Danska', FI: 'Finska',
+  IE: 'Irska', PT: 'Portugal', UA: 'Ukrajina', BY: 'Belorusija', MD: 'Moldavija',
+  CA: 'Kanada', AU: 'Australija', CN: 'Kina', JP: 'Japan', IN: 'Indija',
+  BR: 'Brazil', AR: 'Argentina', ZA: 'JAR', EG: 'Egipat', AE: 'UAE',
+  LT: 'Litvanija', LV: 'Letonija', EE: 'Estonija', LU: 'Luksemburg',
+  CY: 'Kipar', MT: 'Malta', IS: 'Island', KR: 'J. Koreja', NZ: 'N. Zeland',
+};
+
 const names = {};
+const shortNames = {};
 const regions = {};
+const centroids = {};
+const bounds = {};
+
 for (const code of Object.keys(countries)) {
   names[code] = alpha2ToName.get(code) ?? code;
+  // Duga ISO imena se seku na prvom zarezu ili zagradi ("Korea (the Republic of)")
+  shortNames[code] = SHORT_NAMES[code]
+    ?? (alpha2ToName.get(code) ?? code).split(/[,(]/)[0].trim();
   regions[code] = alpha2ToRegion.get(code) ?? 'Other';
+
+  const rings = shapes.get(code) ?? [];
+  if (!rings.length) continue;
+
+  // Natpis ide na najveci deo teritorije, ne na centar svih ostrva zajedno -
+  // inace bi natpis za Norvesku zavrsio u moru.
+  const biggest = rings.reduce((a, b) => (b.area > a.area ? b : a));
+  centroids[code] = [round(biggest.centroid[0]), round(biggest.centroid[1])];
+  bounds[code] = biggest.bounds.map(round);
 }
 
 const [exLon, exLat] = [project([-180, LAT_CLAMP]), project([180, -LAT_CLAMP])];
@@ -184,7 +255,16 @@ export const COUNTRY_NAMES = ${JSON.stringify(names)};
 
 export const COUNTRY_REGIONS = ${JSON.stringify(regions)};
 
+/** Kratka imena za natpise na mapi. Tabele koriste COUNTRY_NAMES. */
+export const COUNTRY_SHORT = ${JSON.stringify(shortNames)};
+
 export const COUNTRY_PATHS = ${JSON.stringify(countries)};
+
+/** Tacka za natpis: centroid najveceg dela teritorije. */
+export const COUNTRY_CENTROIDS = ${JSON.stringify(centroids)};
+
+/** [x0, y0, x1, y1] najveceg dela - koristi se da se proceni ima li mesta za natpis. */
+export const COUNTRY_BOUNDS = ${JSON.stringify(bounds)};
 `;
 
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
@@ -195,5 +275,6 @@ console.log(`Zapisano ${OUT}`);
 console.log(`  država sa putanjom : ${Object.keys(countries).length}`);
 console.log(`  bez ISO koda       : ${skipped}`);
 console.log(`  veličina modula    : ${kb} KB`);
+console.log(`  sa centroidom      : ${Object.keys(centroids).length}`);
 console.log(`  world viewBox      : ${viewBox}`);
 console.log(`  europe viewBox     : ${europeViewBox}`);

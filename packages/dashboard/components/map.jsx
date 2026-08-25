@@ -41,6 +41,20 @@ const MAX_W = PRESETS.world.w;
 // Natpisi u px, nezavisno od zuma
 const COUNTRY_FONT_PX = 11;
 const CITY_FONT_PX = 10;
+const PLACE_FONT_PX = 9;
+
+/**
+ * Koliko detalja podloge se prikazuje na kom nivou uvećanja.
+ * Prag je širina viewBox-a: manja širina = dublji zum = više gradova.
+ * Vrednosti su birane tako da svaki nivo doda vidljiv sloj, a ne kašu.
+ */
+function placeTierFor(viewWidth) {
+  if (viewWidth > 400) return 0;   // ceo svet: samo milionski gradovi
+  if (viewWidth > 200) return 1;
+  if (viewWidth > 100) return 2;
+  if (viewWidth > 45) return 3;
+  return 4;                        // duboki zum: sve, do 5.000 stanovnika
+}
 
 function quantileBreaks(values, classes) {
   const sorted = [...values].filter((v) => v > 0).sort((a, b) => a - b);
@@ -89,18 +103,28 @@ export function GeoMap({
   const [hover, setHover] = useState(null);
   const [width, setWidth] = useState(800);
   const [subdivisions, setSubdivisions] = useState(null);
+  const [places, setPlaces] = useState(null);
 
   /**
-   * Unutrašnje granice (savezne države, pokrajine) idu u zaseban modul i
-   * učitavaju se tek kad se mapa prikaže. Bez njih Rusija, SAD, Brazil i
-   * Australija izgledaju kao prazne mrlje, ali ne treba da opterete ekrane
-   * koji mapu uopšte ne koriste.
+   * Podloga — unutrašnje granice i gradovi — ide u zasebne module i učitava se
+   * tek kad se mapa prikaže.
+   *
+   * Bez nje mapa pokazuje samo gradove koji imaju saobraćaj, pa Srbija izgleda
+   * kao prazna mrlja sa pet tačaka. Podloga daje geografski kontekst: čitalac
+   * vidi GDE je Kragujevac u odnosu na gradove koji tog dana nemaju posetu.
+   *
+   * Ovi moduli ne treba da opterete ekrane koji mapu uopšte ne koriste.
    */
   useEffect(() => {
     let cancelled = false;
-    import('@/lib/world-subdivisions')
-      .then((m) => { if (!cancelled) setSubdivisions(m.SUBDIVISION_PATHS); })
-      .catch(() => { /* mapa radi i bez njih */ });
+    Promise.all([
+      import('@/lib/world-subdivisions').then((m) => m.SUBDIVISION_PATHS).catch(() => null),
+      import('@/lib/world-places').then((m) => m.PLACES).catch(() => null),
+    ]).then(([subs, pls]) => {
+      if (cancelled) return;
+      if (subs) setSubdivisions(subs);
+      if (pls) setPlaces(pls);
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -204,6 +228,32 @@ export function GeoMap({
     .sort((a, b) => (b[valueKey] ?? 0) - (a[valueKey] ?? 0)), [cities, view, valueKey]);
 
   /**
+   * Gradovi podloge: filtriraju se po nivou detalja i vidnom polju, pa se
+   * izbacuju oni na kojima već stoji mehurić sa podacima — inače bi isti grad
+   * dobio dva natpisa, jednom kao podatak, jednom kao podloga.
+   */
+  const basePlaces = useMemo(() => {
+    if (!places) return [];
+    const tier = placeTierFor(view.w);
+    const pad = view.w * 0.05;
+
+    // Mesta na kojima već stoji mehurić
+    const taken = visibleCities.map((c) => [c.x, c.y]);
+    const tooClose = 1.5 * pxToSvg;
+
+    const out = [];
+    for (const [name, x, y, t] of places) {
+      if (t > tier) continue;
+      if (x < view.x - pad || x > view.x + view.w + pad) continue;
+      if (y < view.y - pad || y > view.y + view.h + pad) continue;
+      if (taken.some(([tx, ty]) => Math.abs(tx - x) < tooClose && Math.abs(ty - y) < tooClose)) continue;
+      out.push({ name, x, y, tier: t });
+      if (out.length >= 400) break;   // zastita od patoloskih zumova
+    }
+    return out;
+  }, [places, view, pxToSvg, visibleCities]);
+
+  /**
    * Sloj unutrašnjih granica se pravi jednom po nivou zuma. Pri prevlačenju
    * se menja samo viewBox, a pxToSvg ostaje isti — bez ovoga bi React na
    * svaki frejm ponovo gradio ~500 <path> elemenata.
@@ -276,6 +326,20 @@ export function GeoMap({
       }
     }
 
+    // Gradovi podloge: posle podataka, pre država bez podataka
+    const placeFont = PLACE_FONT_PX * pxToSvg;
+    const placeLabels = [];
+    for (const p of basePlaces) {
+      const w = textWidth(p.name, placeFont);
+      const y = p.y - 1.6 * pxToSvg;
+      if (fits({
+        x0: p.x - w / 2, x1: p.x + w / 2,
+        y0: y - placeFont, y1: y + placeFont * 0.3,
+      })) {
+        placeLabels.push({ key: `p-${p.name}-${p.x}`, x: p.x, y, text: p.name, font: placeFont });
+      }
+    }
+
     // Tek na kraju države bez podataka - one su samo kontekst
     for (const code of Object.keys(COUNTRY_CENTROIDS)) {
       if (byCountry.has(code)) continue;
@@ -283,8 +347,8 @@ export function GeoMap({
       if (l) countryLabels.push(l);
     }
 
-    return { cityLabels, countryLabels };
-  }, [visibleCities, byCountry, view, pxToSvg, valueKey, maxCity]);
+    return { cityLabels, countryLabels, placeLabels };
+  }, [visibleCities, byCountry, basePlaces, view, pxToSvg, valueKey, maxCity]);
 
   const btn = 'rounded px-2.5 py-1 text-xs font-medium transition-colors';
   const btnOn = 'bg-[var(--series-1)] text-white';
@@ -379,6 +443,38 @@ export function GeoMap({
 
           {/* Unutrašnje granice — tanje i svetlije od državnih */}
           {subdivisionLayer}
+
+          {/* Gradovi podloge — sitne tačke, ispod svega ostalog */}
+          <g pointerEvents="none">
+            {basePlaces.map((p) => (
+              <circle
+                key={`bp-${p.name}-${p.x}`}
+                cx={p.x}
+                cy={p.y}
+                r={1.1 * pxToSvg}
+                fill="var(--text-muted)"
+                fillOpacity={0.55}
+              />
+            ))}
+          </g>
+
+          <g pointerEvents="none">
+            {labels.placeLabels.map((l) => (
+              <text
+                key={l.key}
+                x={l.x}
+                y={l.y}
+                textAnchor="middle"
+                fontSize={l.font}
+                fill="var(--text-muted)"
+                stroke="var(--surface-1)"
+                strokeWidth={2.5 * pxToSvg}
+                paintOrder="stroke"
+              >
+                {l.text}
+              </text>
+            ))}
+          </g>
 
           {/* Natpisi država — ispod mehurića, da ih krugovi ne prekriju */}
           <g pointerEvents="none">
@@ -494,6 +590,13 @@ export function GeoMap({
             </span>
           </div>
         )}
+        <span className="text-[10px] text-[var(--text-muted)]">
+          Podloga: Natural Earth ·{' '}
+          <a href="https://www.geonames.org/" target="_blank" rel="noreferrer" className="underline">
+            GeoNames
+          </a>{' '}
+          (CC BY 4.0)
+        </span>
         <span className="ml-auto">
           {mode === 'choropleth'
             ? 'Skala je kvantilna — svaka nijansa nosi približno isti broj država.'

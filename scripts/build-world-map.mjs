@@ -230,59 +230,86 @@ const europeViewBox = [
   round(euBottomRight[1] - euTopLeft[1]),
 ].join(' ');
 
-// ── Unutrasnje granice (admin-1: savezne drzave, pokrajine, regioni) ────────
-// Bez njih Rusija, SAD, Brazil i Australija izgledaju kao prazne mrlje.
-// Ovo su SAMO linije, ne poligoni - crtaju se kao tanke crte preko podloge.
+// ── Unutrasnje granice (admin-1: savezne drzave, pokrajine, okruzi) ────────
+// Bez njih Rusija, SAD, Brazil i Australija izgledaju kao prazne mrlje, a
+// Srbija kao jedna siva mrlja bez okruga.
+//
+// Dva izvora, iz istog razloga kao kod gradova: region portala zasluzuje pun
+// detalj, ostatak sveta samo grubi kontekst. Ceo 10m skup je 10.179 linija -
+// neupotrebljivo veliko za pregledac.
+const HOME_A3 = new Set(['SRB', 'BIH', 'HRV', 'MNE', 'MKD', 'SVN', 'ALB', 'KOS']);
+
 const subdivisions = [];
-try {
-  const admin1 = JSON.parse(fs.readFileSync(path.join(tmp, 'admin1-lines.geojson'), 'utf8'));
 
-  for (const feature of admin1.features) {
-    // SCALERANK cuva samo znacajnije granice; sitne granice na svetskoj mapi
-    // nisu citljive, a udvostrucuju velicinu modula.
-    if (Number(feature.properties?.SCALERANK ?? 99) > 5) continue;
+/** Projektuje, decimira i pretvara liniju u SVG putanju. */
+function lineToPath(coords, minStep, minLength) {
+  const points = coords.map(project);
+  if (points.length < 2) return '';
 
+  const kept = [points[0]];
+  for (let i = 1; i < points.length - 1; i++) {
+    const last = kept[kept.length - 1];
+    const dx = points[i][0] - last[0];
+    const dy = points[i][1] - last[1];
+    if (dx * dx + dy * dy >= minStep * minStep) kept.push(points[i]);
+  }
+  kept.push(points[points.length - 1]);
+  if (kept.length < 2) return '';
+
+  const first = kept[0];
+  const last = kept[kept.length - 1];
+  if (Math.hypot(last[0] - first[0], last[1] - first[1]) < minLength && kept.length < 6) return '';
+
+  const out = [];
+  let prev = null;
+  for (const pt of kept) {
+    const x = round(pt[0]);
+    const y = round(pt[1]);
+    if (prev && prev[0] === x && prev[1] === y) continue;
+    out.push(out.length === 0 ? `M${x} ${y}` : `L${x} ${y}`);
+    prev = [x, y];
+  }
+  return out.length > 1 ? out.join('') : '';
+}
+
+function addLines(file, keep, minStep, minLength) {
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(path.join(tmp, file), 'utf8'));
+  } catch {
+    console.warn(`  (${file} nije nadjen - preskacem)`);
+    return 0;
+  }
+
+  let added = 0;
+  for (const feature of data.features) {
+    if (!keep(feature.properties ?? {})) continue;
     const geoms = feature.geometry.type === 'MultiLineString'
       ? feature.geometry.coordinates
       : [feature.geometry.coordinates];
-
     for (const line of geoms) {
-      const points = line.map(project);
-      if (points.length < 2) continue;
-
-      // Decimacija: tacke blize od MIN_STEP se izbacuju. Granica je samo
-      // kontekst - vise tacaka ne dodaje citljivost, samo velicinu modula.
-      const kept = [points[0]];
-      for (let i = 1; i < points.length - 1; i++) {
-        const last = kept[kept.length - 1];
-        const dx = points[i][0] - last[0];
-        const dy = points[i][1] - last[1];
-        if (dx * dx + dy * dy >= SUBDIVISION_MIN_STEP * SUBDIVISION_MIN_STEP) kept.push(points[i]);
-      }
-      kept.push(points[points.length - 1]);
-      if (kept.length < 2) continue;
-
-      // Vrlo kratke granice nestaju u sirini linije
-      const first = kept[0];
-      const last = kept[kept.length - 1];
-      if (Math.hypot(last[0] - first[0], last[1] - first[1]) < SUBDIVISION_MIN_LENGTH
-          && kept.length < 6) continue;
-
-      const out = [];
-      let prev = null;
-      for (const p of kept) {
-        const x = round(p[0]);
-        const y = round(p[1]);
-        if (prev && prev[0] === x && prev[1] === y) continue;
-        out.push(out.length === 0 ? `M${x} ${y}` : `L${x} ${y}`);
-        prev = [x, y];
-      }
-      if (out.length > 1) subdivisions.push(out.join(''));
+      const d = lineToPath(line, minStep, minLength);
+      if (d) { subdivisions.push(d); added++; }
     }
   }
-} catch {
-  console.warn('  (admin-1 linije nisu nadjene - unutrasnje granice se preskacu)');
+  return added;
 }
+
+const a3 = (props) => props.ADM0_A3 ?? props.adm0_a3 ?? '';
+
+// Region: pun detalj iz 10m skupa
+const homeLines = addLines(
+  'admin1-10m.geojson',
+  (props) => HOME_A3.has(a3(props)),
+  0.12, 0.4,
+);
+
+// Ostatak sveta: grubi kontekst iz 50m skupa, jace decimiran
+const worldLines = addLines(
+  'admin1-lines.geojson',
+  (props) => !HOME_A3.has(a3(props)) && Number(props.SCALERANK ?? 99) <= 5,
+  0.7, 2.5,
+);
 
 const subdivisionsFile = path.join(path.dirname(OUT), 'world-subdivisions.js');
 fs.writeFileSync(subdivisionsFile, `/**
@@ -290,10 +317,10 @@ fs.writeFileSync(subdivisionsFile, `/**
  * kao world-map.js.
  *
  * GENERISANO. Ne menjati rucno.
- * Podaci: Natural Earth 50m admin-1 boundary lines (public domain).
+ * Podaci: Natural Earth admin-1 boundary lines (public domain) - 10m za region
+ * portala, 50m za ostatak sveta.
  *
- * Ucitava se dinamicki, tek kad se mapa prikaze - da ne opterecuje ostale
- * ekrane koji mapu ne koriste.
+ * Ucitava se dinamicki, tek kad se mapa prikaze.
  */
 
 export const SUBDIVISION_PATHS = ${JSON.stringify(subdivisions)};
@@ -348,6 +375,6 @@ console.log(`  država sa putanjom : ${Object.keys(countries).length}`);
 console.log(`  bez ISO koda       : ${skipped}`);
 console.log(`  veličina modula    : ${kb} KB`);
 console.log(`  sa centroidom      : ${Object.keys(centroids).length}`);
-console.log(`  unutrasnjih granica: ${subdivisions.length} (${(fs.statSync(subdivisionsFile).size / 1024).toFixed(1)} KB)`);
+console.log(`  unutrasnje granice : ${subdivisions.length} (region ${homeLines}, svet ${worldLines}) = ${(fs.statSync(subdivisionsFile).size / 1024).toFixed(1)} KB`);
 console.log(`  world viewBox      : ${viewBox}`);
 console.log(`  europe viewBox     : ${europeViewBox}`);

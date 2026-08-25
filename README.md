@@ -349,9 +349,19 @@ izlaže geo u dashboard-u. Dodato je:
 ingestion-u. Isto grupisanje je ugrađeno i u mapu, da tabela i mapa nikad ne pokazuju
 različite brojeve. Menja se u `.env` plus ponovno generisanje mape.
 
-Mapa je **ugrađena kao SVG** (`packages/dashboard/lib/world-map.js`, generisano iz
-Natural Earth podataka skriptom `scripts/build-world-map.mjs`). Nema pločica sa tuđeg
-servera: CSP je `default-src 'self'`, a i cela poenta je da podaci ne odlaze trećoj strani.
+Mapa je **ugrađena kao SVG**, bez ijednog poziva ka spoljnom servisu — CSP je
+`default-src 'self'`, a i cela poenta je da podaci ne odlaze trećoj strani:
+
+| Modul | Šta nosi | Kad se učitava |
+|---|---|---|
+| `world-map.js` | granice država, centroidi, kratka imena | uz stranicu (51 KB gzip) |
+| `world-subdivisions.js` | unutrašnje granice — okruzi, savezne države | lenjo (35 KB gzip) |
+| `world-places.js` | 3.486 gradova za podlogu | lenjo (43 KB gzip) |
+
+Generišu se skriptama `scripts/build-world-map.mjs` i `scripts/build-places.mjs`,
+pa se rezultat commit-uje. Gustina gradova je regionalna: Balkan od 5.000 stanovnika,
+Evropa i dijaspora od 90.000, ostatak sveta od 400.000 — ovo je mapa za srpski portal,
+pa Balkan zaslužuje detalj kakav ima Google Maps, a Bolivija ne.
 
 **Dodato uz spec:** `title` u `pulseMeta`. Bez naslova dashboard prikazuje ID-jeve članaka,
 što nije upotrebljivo za urednika. Polje je opciono — ako izostane, SDK koristi `document.title`.

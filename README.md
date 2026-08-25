@@ -19,6 +19,7 @@ Prvi-party: podaci ne izlaze iz infrastrukture klijenta.
 - [Šta je gde implementirano](#šta-je-gde-implementirano)
 - [Šta je verifikovano](#šta-je-verifikovano)
 - [Namerna odstupanja od specifikacije](#namerna-odstupanja-od-specifikacije)
+- [Deployment: šta ide gde](#deployment-šta-ide-gde)
 - [Dokumentacija](#dokumentacija)
 
 ---
@@ -233,6 +234,47 @@ direct-a" — što nema smisla ako nemaju svoj kanal da odu u njega.
 
 ---
 
+## Deployment: šta ide gde
+
+Pulse je stateful pipeline. Skoro sve mora na server; serverless ne dolazi u obzir
+za ingestion i worker.
+
+| Komponenta | Gde | Zašto |
+|---|---|---|
+| ClickHouse, Redis, Postgres | server | trajni disk, dugotrajne konekcije |
+| Ingestion API | server | spool fallback traži trajan fajl sistem; cilj p99 < 20ms ne trpi cold start |
+| Worker | server | visi na `XREADGROUP ... BLOCK` — to nije funkcija nego proces |
+| Cron | server | teški upiti nad ClickHouse-om, izvan limita serverless trajanja |
+| Dashboard | server (ili Vercel) | jedini deo koji je čist client-side SPA |
+
+Sve osim dashboarda podiže `docker compose up -d --build` na serveru iz sekcije 13.2.
+
+### Demo na Vercelu (preporučeno ako treba javni prikaz)
+
+```
+Root Directory:  packages/dashboard
+Env:             NEXT_PUBLIC_PULSE_DEMO = 1
+```
+
+Dashboard tada ne dodiruje nijedan backend — svi brojevi se generišu u pregledaču
+(`packages/dashboard/lib/demo.js`), CSP je `connect-src 'self'`, i svaki ekran nosi
+vidljivu oznaku da su podaci izmišljeni. API ostaje interni, bez CORS-a i bez izlaganja.
+
+### Produkcijski dashboard na Vercelu (ako baš treba)
+
+```
+Root Directory:  packages/dashboard
+Env:             NEXT_PUBLIC_API_URL = https://analitika.tvarenasport.com
+```
+
+Traži da API bude javno dostupan i da `API_CORS_ORIGIN` sadrži Vercel domen.
+To je veća površina napada nego kad je sve iza jednog nginx-a — preporuka je da
+dashboard ostane uz API, na istom hostu.
+
+**Ingest, worker i cron nikad ne idu na Vercel.** Detalji u [SECURITY.md](SECURITY.md).
+
+---
+
 ## Dokumentacija
 
 | Dokument | Za koga |
@@ -241,6 +283,7 @@ direct-a" — što nema smisla ako nemaju svoj kanal da odu u njega.
 | [docs/operativni-prirucnik.md](docs/operativni-prirucnik.md) | ko drži sistem — alerti, skaliranje, backup, kvarovi |
 | [docs/citanje-izvestaja.md](docs/citanje-izvestaja.md) | urednici — šta koji broj znači i šta ne znači |
 | [docs/api.md](docs/api.md) | integracije — REST endpointi |
+| [SECURITY.md](SECURITY.md) | bezbednosna postavka: tajne, podaci o posetiocima, izloženost |
 
 ---
 

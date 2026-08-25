@@ -2,6 +2,33 @@
 
 import { useState } from 'react';
 import { num, pct, trendClass, trendArrow } from '@/lib/format';
+import { IS_DEMO } from '@/lib/demo';
+
+/**
+ * Traka koja jasno kaze da brojevi nisu stvarni.
+ * Analitika koja prikazuje izmisljene brojeve bez oznake je gora od
+ * nikakve - zato je ovo vidljivo na svakom ekranu, a ne u podnozju.
+ */
+export function DemoBanner() {
+  if (!IS_DEMO) return null;
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[var(--series-4)]/50 bg-[var(--series-4)]/10 px-4 py-2.5">
+      <span className="text-sm font-semibold text-[var(--text-primary)]">Demo prikaz</span>
+      <span className="text-sm text-[var(--text-secondary)]">
+        Svi brojevi su izmišljeni i generisani u pregledaču. Ovo nije saobraćaj tvarenasport.com-a
+        i nijedan podatak ne dolazi sa servera.
+      </span>
+      <a
+        href="https://github.com/stex4cs/pulse-analytics"
+        target="_blank"
+        rel="noreferrer"
+        className="ml-auto whitespace-nowrap text-xs text-[var(--text-secondary)] underline hover:text-[var(--text-primary)]"
+      >
+        Izvorni kod ↗
+      </a>
+    </div>
+  );
+}
 
 export function Card({ title, subtitle, action, children, className = '' }) {
   return (

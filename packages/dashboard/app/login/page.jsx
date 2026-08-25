@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { login } from '@/lib/api';
+import { IS_DEMO } from '@/lib/demo';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,6 +36,16 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">Pulse</h1>
           <p className="mt-1 text-sm text-[var(--text-muted)]">Analitika za tvarenasport.com</p>
         </div>
+
+        {IS_DEMO && (
+          <div className="mb-5 rounded-md border border-[var(--series-4)]/50 bg-[var(--series-4)]/10 px-3 py-2.5">
+            <p className="text-xs font-semibold text-[var(--text-primary)]">Demo prikaz</p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
+              Nema backenda ni prijave — svi brojevi su izmišljeni i generišu se u pregledaču.
+              Uđite bilo kojim podacima.
+            </p>
+          </div>
+        )}
 
         <label className="mb-3 block">
           <span className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Email</span>

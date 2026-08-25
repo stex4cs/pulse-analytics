@@ -5,15 +5,20 @@
  * Cuva access + refresh token u localStorage i tiho osvezava access token.
  */
 
+import { IS_DEMO, DEMO_USER, demoResponse } from './demo.js';
+
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8081';
 const ACCESS = 'pulse_access';
 const REFRESH = 'pulse_refresh';
 const USER = 'pulse_user';
 
 export const tokens = {
-  get access() { return safeGet(ACCESS); },
-  get refresh() { return safeGet(REFRESH); },
+  // U demo rezimu nema tokena jer nema backenda; vracamo oznaku da bi
+  // zasticeni layout pustio prikaz.
+  get access() { return IS_DEMO ? 'demo' : safeGet(ACCESS); },
+  get refresh() { return IS_DEMO ? null : safeGet(REFRESH); },
   get user() {
+    if (IS_DEMO) return DEMO_USER;
     const raw = safeGet(USER);
     try { return raw ? JSON.parse(raw) : null; } catch { return null; }
   },
@@ -61,6 +66,13 @@ async function refreshAccess() {
 }
 
 export async function apiFetch(path, options = {}) {
+  // Demo se presece OVDE, pre ijednog mreznog poziva - nijedan zahtev ne
+  // napusta pregledac, pa API ne mora ni da postoji ni da bude izlozen.
+  if (IS_DEMO) {
+    await new Promise((r) => setTimeout(r, 120));   // blaga latencija radi realnosti
+    return demoResponse(path);
+  }
+
   const doFetch = async () => fetch(`${BASE}/api${path}`, {
     ...options,
     headers: {
@@ -96,6 +108,8 @@ export async function apiFetch(path, options = {}) {
 export const fetcher = (path) => apiFetch(path);
 
 export async function login(email, password) {
+  if (IS_DEMO) return DEMO_USER;
+
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -108,6 +122,10 @@ export async function login(email, password) {
 }
 
 export async function logout() {
+  if (IS_DEMO) {
+    if (typeof window !== 'undefined') window.location.href = '/login';
+    return;
+  }
   try { await apiFetch('/auth/logout', { method: 'POST' }); } catch { /* svejedno cistimo */ }
   tokens.clear();
   if (typeof window !== 'undefined') window.location.href = '/login';
@@ -115,6 +133,11 @@ export async function logout() {
 
 /** Preuzimanje CSV-a uz Authorization zaglavlje. */
 export async function downloadCsv(path, filename) {
+  if (IS_DEMO) {
+    alert('CSV export radi u punoj verziji. Ovo je demo bez backenda.');
+    return;
+  }
+
   const res = await fetch(`${BASE}/api${path}`, {
     headers: tokens.access ? { Authorization: `Bearer ${tokens.access}` } : {},
   });

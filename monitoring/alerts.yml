@@ -1,0 +1,107 @@
+# Alerti koje spec izricito trazi (sekcija 13.4) + par koji stite od tihih kvarova.
+groups:
+  - name: pulse-pipeline
+    rules:
+      # Sekcija 15.2: ako worker ne stigne tokom derbija, Redis se puni dok ne pukne
+      - alert: PulseQueueDepthHigh
+        expr: pulse_queue_depth > 50000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis Stream ima {{ $value | humanize }} neobradjenih poruka"
+          description: "Worker ne stiže. Skalirati: docker compose up -d --scale worker=3"
+
+      - alert: PulseQueueDepthGrowing
+        expr: delta(pulse_queue_depth[10m]) > 20000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dubina reda raste konstantno 10 minuta"
+
+      # Sekcija 13.4: agregacija nije uspela > 15 min
+      - alert: PulseCronStale
+        expr: time() - max by (job) (pulse_cron_last_success_timestamp{job="hot"}) > 900
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Agregacija ({{ $labels.job }}) nije uspela više od 15 minuta"
+          description: "Dashboard prikazuje zastarele brojeve."
+
+      - alert: PulseCronErrors
+        expr: increase(pulse_cron_errors_total[30m]) > 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cron posao {{ $labels.job }} pao više puta u 30 minuta"
+
+      - alert: PulseClickHouseInsertErrors
+        expr: increase(pulse_clickhouse_insert_errors_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Insert u ClickHouse pada — eventi se gomilaju u PEL-u"
+
+      - alert: PulseIngestErrors
+        expr: rate(pulse_ingest_errors_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ingestion prijavljuje greške ({{ $labels.kind }})"
+
+      - alert: PulseIngestLatencyHigh
+        expr: histogram_quantile(0.99, rate(pulse_ingest_duration_seconds_bucket[5m])) > 0.02
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 latencija /collect je iznad 20ms (cilj iz sekcije 4.3)"
+
+      - alert: PulseSpoolFallbackActive
+        expr: increase(pulse_ingest_spool_writes_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ingest piše u spool fajl — Redis je nedostupan"
+
+      # Tihi kvar: SDK je pukao ili je tag skinut sa sajta
+      - alert: PulseNoTraffic
+        expr: rate(pulse_ingest_events_total{outcome="accepted"}[10m]) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nijedan event nije primljen 10 minuta"
+          description: "Proveriti da li je pulse.js i dalje na sajtu."
+
+      - alert: PulseRejectedEventsSpike
+        expr: rate(pulse_ingest_rejected_events_total[10m]) > rate(pulse_ingest_events_total{outcome="accepted"}[10m]) * 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Više od 10% eventa se odbacuje ({{ $labels.reason }})"
+
+  - name: pulse-infra
+    rules:
+      - alert: PulseDiskPressure
+        expr: (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) > 0.75
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk je iznad 75% (sekcija 13.4)"
+
+      - alert: PulseServiceDown
+        expr: up{job=~"pulse-.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Servis {{ $labels.job }} ({{ $labels.instance }}) ne odgovara"

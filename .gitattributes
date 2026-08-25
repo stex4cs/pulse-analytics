@@ -1,0 +1,6 @@
+# Repo drzi LF; Docker image-i i shell skripte ne trpe CRLF.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.mmdb binary

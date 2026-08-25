@@ -1,0 +1,35 @@
+# Zajednicki image za ingest / worker / cron / api.
+# Ulazna tacka se bira preko ENTRY build arg-a, npr:
+#   docker build -f Dockerfile.node --build-arg ENTRY=packages/worker/src/worker.js .
+FROM node:22-alpine AS base
+WORKDIR /app
+RUN apk add --no-cache tini python3 make g++
+
+# ── Zavisnosti ──────────────────────────────────────────────────────────────
+FROM base AS deps
+COPY package.json package-lock.json* ./
+COPY packages/shared/package.json   packages/shared/
+COPY packages/ingest/package.json   packages/ingest/
+COPY packages/worker/package.json   packages/worker/
+COPY packages/cron/package.json     packages/cron/
+COPY packages/api/package.json      packages/api/
+COPY sdk/package.json               sdk/
+RUN npm install --omit=dev --workspaces --include-workspace-root
+
+# ── Runtime ─────────────────────────────────────────────────────────────────
+FROM base AS runtime
+ARG ENTRY=packages/ingest/src/server.js
+ENV NODE_ENV=production
+ENV PULSE_ENTRY=${ENTRY}
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json ./
+COPY packages ./packages
+COPY scripts ./scripts
+
+# Spool direktorijum za fallback upis kad Redis nije dostupan (sekcija 4.3)
+RUN mkdir -p /var/lib/pulse/spool && chown -R node:node /var/lib/pulse /app
+USER node
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["sh", "-c", "exec node $PULSE_ENTRY"]

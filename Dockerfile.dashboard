@@ -1,0 +1,33 @@
+# Next.js dashboard (standalone output).
+FROM node:22-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json* ./
+COPY packages/dashboard/package.json packages/dashboard/
+RUN npm install --workspace @pulse/dashboard --include-workspace-root
+
+FROM node:22-alpine AS builder
+WORKDIR /app
+ARG NEXT_PUBLIC_API_URL=http://localhost:8081
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/dashboard/node_modules ./packages/dashboard/node_modules
+COPY package.json ./
+COPY packages/dashboard ./packages/dashboard
+RUN npm run build --workspace @pulse/dashboard
+
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN apk add --no-cache tini && addgroup -g 1001 nodejs && adduser -u 1001 -G nodejs -S nextjs
+
+COPY --from=builder --chown=nextjs:nodejs /app/packages/dashboard/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/packages/dashboard/.next/static ./packages/dashboard/.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/packages/dashboard/public ./packages/dashboard/public
+
+USER nextjs
+EXPOSE 3000
+ENV PORT=3000 HOSTNAME=0.0.0.0
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "packages/dashboard/server.js"]

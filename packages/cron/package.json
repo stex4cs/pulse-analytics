@@ -1,0 +1,17 @@
+{
+  "name": "@pulse/cron",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "run-once": "node src/cli.js"
+  },
+  "dependencies": {
+    "@pulse/shared": "*",
+    "croner": "^9.0.0",
+    "nodemailer": "^6.9.16"
+  }
+}

@@ -1,0 +1,17 @@
+node_modules/
+.next/
+dist/
+*.log
+.env
+.env.local
+data/
+sdk/dist/
+packages/dashboard/.next/
+geoip/*.mmdb
+spool/
+coverage/
+
+# Klijentska specifikacija - poslovni podaci (saobracaj, ugovorni kontekst).
+# Repo je javan, pa spec ostaje lokalno. Ako treba da ide uz kod, obrisite
+# ovu liniju ili prebacite repo na private.
+pulse-build-spec.md

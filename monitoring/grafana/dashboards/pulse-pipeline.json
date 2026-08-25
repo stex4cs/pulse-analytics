@@ -1,0 +1,125 @@
+{
+  "uid": "pulse-pipeline",
+  "title": "Pulse — pipeline",
+  "tags": ["pulse"],
+  "timezone": "Europe/Belgrade",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Primljeni eventi / s",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 8 } } },
+      "targets": [
+        {
+          "expr": "sum by (event_type) (rate(pulse_ingest_events_total{outcome=\"accepted\"}[5m]))",
+          "legendFormat": "{{event_type}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Dubina reda (alert > 50.000)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 8 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "#eda100", "value": 20000 },
+              { "color": "#e34948", "value": 50000 }
+            ]
+          }
+        }
+      },
+      "targets": [{ "expr": "pulse_queue_depth", "legendFormat": "queue depth" }]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Latencija /collect (cilj p99 < 20ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(pulse_ingest_duration_seconds_bucket[5m]))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, rate(pulse_ingest_duration_seconds_bucket[5m]))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, rate(pulse_ingest_duration_seconds_bucket[5m]))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Worker: batch trajanje i upisani redovi",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2 } } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(pulse_worker_batch_duration_seconds_bucket[5m]))",
+          "legendFormat": "batch p95 (s)"
+        },
+        { "expr": "rate(pulse_worker_events_written_total[5m])", "legendFormat": "upisano/s" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Minuta od poslednje uspešne agregacije",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "#eda100", "value": 10 },
+              { "color": "#e34948", "value": 15 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        { "expr": "(time() - max(pulse_cron_last_success_timestamp{job=\"hot\"})) / 60", "legendFormat": "hot" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Odbačeni eventi / s",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 16 },
+      "targets": [{ "expr": "sum(rate(pulse_ingest_rejected_events_total[5m]))" }]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Greške insert-a u ClickHouse (1h)",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 16 },
+      "targets": [{ "expr": "increase(pulse_clickhouse_insert_errors_total[1h])" }]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Spike alerti (24h)",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 16 },
+      "targets": [{ "expr": "sum(increase(pulse_spike_alerts_total[24h]))" }]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Bot vs stvarni saobraćaj",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 10, "stacking": { "mode": "normal" } } } },
+      "targets": [
+        { "expr": "sum(rate(pulse_ingest_events_total{outcome=\"accepted\"}[5m]))", "legendFormat": "stvarni" },
+        { "expr": "sum(rate(pulse_ingest_events_total{outcome=\"bot\"}[5m]))", "legendFormat": "botovi" }
+      ]
+    }
+  ]
+}

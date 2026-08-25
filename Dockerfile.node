@@ -26,6 +26,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY packages ./packages
 COPY scripts ./scripts
+# Migracije se pokrecu iz kontejnera (vidi operativni prirucnik) - bez db/
+# skripta nema sta da izvrsi
+COPY db ./db
 
 # Spool direktorijum za fallback upis kad Redis nije dostupan (sekcija 4.3)
 RUN mkdir -p /var/lib/pulse/spool && chown -R node:node /var/lib/pulse /app

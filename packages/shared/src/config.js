@@ -17,6 +17,18 @@ export const config = {
 
   sites: list(process.env.PULSE_SITES, ['rs', 'hr', 'ba', 'si']),
   defaultSite: process.env.PULSE_DEFAULT_SITE ?? 'rs',
+  /**
+   * Grupisanje teritorija na ingestion-u: MaxMind vraca XK za Kosovo, a za
+   * ovog klijenta je to deo Srbije. Isto grupisanje je primenjeno i na mapi
+   * (scripts/build-world-map.mjs) - da tabela i mapa ne pokazuju razlicito.
+   * Format: "XK:RS,AAA:BBB". Prazna vrednost iskljucuje grupisanje.
+   */
+  countryMerge: Object.fromEntries(
+    list(process.env.PULSE_COUNTRY_MERGE, ['XK:RS'])
+      .map((pair) => pair.split(':').map((x) => x.trim().toUpperCase()))
+      .filter(([from, to]) => from && to),
+  ),
+
   internalDomains: list(process.env.PULSE_INTERNAL_DOMAINS, [
     'tvarenasport.com',
     'tvarenasport.hr',

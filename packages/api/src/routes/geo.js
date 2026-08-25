@@ -158,6 +158,65 @@ export default async function geoRoutes(app) {
     };
   });
 
+  /**
+   * Uživo: ko je aktivan upravo sada, po državi i gradu.
+   *
+   * Čita `geo_minute` (TTL 2 dana) umesto sirovih eventa — mapa se osvežava na
+   * 10 sekundi, pa svaki refresh mora da bude jeftin.
+   */
+  app.get('/realtime/geo', auth, async (req) => {
+    const site = siteScope(req.user, req.query.site);
+    const minutes = Math.min(60, Math.max(1, Number(req.query.minutes) || 30));
+
+    const [countries, cities] = await Promise.all([
+      chQuery(`
+        SELECT country,
+               sum(pageviews)            AS pageviews,
+               uniqMerge(sessions_state) AS active_users
+          FROM pulse.geo_minute
+         WHERE site = {site:String} AND minute >= now() - INTERVAL {minutes:UInt16} MINUTE
+         GROUP BY country
+         ORDER BY active_users DESC`, { site, minutes }),
+      chQuery(`
+        SELECT country, city,
+               round(anyLast(lat), 2)    AS lat,
+               round(anyLast(lon), 2)    AS lon,
+               sum(pageviews)            AS pageviews,
+               uniqMerge(sessions_state) AS active_users
+          FROM pulse.geo_minute
+         WHERE site = {site:String}
+           AND minute >= now() - INTERVAL {minutes:UInt16} MINUTE
+           AND city != ''
+         GROUP BY country, city
+         ORDER BY active_users DESC
+         LIMIT 300`, { site, minutes }),
+    ]);
+
+    const totalActive = countries.reduce((s, r) => s + num(r.active_users), 0);
+
+    return {
+      minutes,
+      totalActive,
+      totalPageviews: countries.reduce((s, r) => s + num(r.pageviews), 0),
+      countries: countries.map((r) => ({
+        country: r.country,
+        pageviews: num(r.pageviews),
+        uniqueVisitors: num(r.active_users),
+        activeUsers: num(r.active_users),
+        share: totalActive > 0 ? Math.round((num(r.active_users) / totalActive) * 1000) / 10 : 0,
+      })),
+      cities: cities.map((r) => ({
+        country: r.country,
+        city: r.city,
+        lat: num(r.lat),
+        lon: num(r.lon),
+        pageviews: num(r.pageviews),
+        uniqueVisitors: num(r.active_users),
+        activeUsers: num(r.active_users),
+      })),
+    };
+  });
+
   // ── Kanal × država: odakle geografski dolazi koji kanal ──────────────────
   app.get('/geo/channels', { preHandler: [app.requireRole(ROLES.ADMIN, ROLES.EDITOR)] }, async (req) => {
     const site = siteScope(req.user, req.query.site);

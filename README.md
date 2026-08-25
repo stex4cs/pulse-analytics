@@ -38,7 +38,7 @@ Redis Streams                buffer koji apsorbuje spike
    ▼
 Worker                       batch INSERT (XACK tek posle uspeha)
    ▼
-ClickHouse                   sirovi eventi (90d TTL) + 20 materialized views
+ClickHouse                   sirovi eventi (90d TTL) + 21 materialized view
    │  cron: 5 min / noćno
    ▼
 PostgreSQL                   dashboard-ready agregati
@@ -186,7 +186,7 @@ mora izlagati te portove.
 ## Struktura repozitorijuma
 
 ```
-db/clickhouse/       šema + 20 materialized views
+db/clickhouse/       šema + 21 materialized view
 db/postgres/         agregati, auth, A/B, alerti, job tracking
 packages/shared/     attribution, validacija, UA/bot, statistika, klijenti, metrike
 packages/ingest/     POST /collect, GET /ab/headline, geo, bot filter, spool
@@ -341,7 +341,13 @@ izlaže geo u dashboard-u. Dodato je:
   geografski dolazi Facebook saobraćaj" je drugo pitanje od „odakle dolazi ukupan".
 - `mv_tag_source_daily` — tagovi su jedini imali rupu; autori i kategorije su presek
   po kanalu već imali.
-- Ekrani `/geografija` i `/odakle-klikovi`.
+- `mv_geo_minute` (TTL 2 dana) — mapa uživo se osvežava na 10 sekundi, pa svaki
+  refresh mora da bude jeftin.
+- Ekrani `/geografija` (mapa, države, gradovi, uživo) i `/odakle-klikovi`.
+
+**Teritorije.** `PULSE_COUNTRY_MERGE` (podrazumevano `XK:RS`) grupiše teritorije na
+ingestion-u. Isto grupisanje je ugrađeno i u mapu, da tabela i mapa nikad ne pokazuju
+različite brojeve. Menja se u `.env` plus ponovno generisanje mape.
 
 Mapa je **ugrađena kao SVG** (`packages/dashboard/lib/world-map.js`, generisano iz
 Natural Earth podataka skriptom `scripts/build-world-map.mjs`). Nema pločica sa tuđeg

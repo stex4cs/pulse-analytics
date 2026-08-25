@@ -23,6 +23,7 @@ export default function GeoPage() {
   const [days, setDays] = useState(30);
   const [source, setSource] = useState('');
   const [country, setCountry] = useState(null);
+  const [live, setLive] = useState(false);
 
   const q = new URLSearchParams({ days: String(days) });
   if (source) q.set('source', source);
@@ -31,25 +32,43 @@ export default function GeoPage() {
   cityQ.set('limit', '300');
   if (country) cityQ.set('country', country);
 
-  const { data, error, isLoading } = useSWR(`/geo?${q}`, fetcher);
-  const { data: cityData } = useSWR(`/geo/cities?${cityQ}`, fetcher);
-  const { data: channels } = useSWR(`/geo/channels?days=${days}&limit=12`, fetcher);
+  // Istorijski pogled se ne poziva dok je uključen uživo, i obrnuto
+  const { data, error, isLoading } = useSWR(live ? null : `/geo?${q}`, fetcher);
+  const { data: cityData } = useSWR(live ? null : `/geo/cities?${cityQ}`, fetcher);
+  const { data: channels } = useSWR(live ? null : `/geo/channels?days=${days}&limit=12`, fetcher);
 
-  if (error) return <ErrorNote error={error} />;
-  if (isLoading || !data) return <Loading />;
+  // Uživo: ista mapa, drugi izvor. Osvežava se na 10 sekundi.
+  const { data: rt, error: rtError } = useSWR(
+    live ? '/realtime/geo?minutes=30' : null,
+    fetcher,
+    { refreshInterval: 10_000 },
+  );
 
-  const countries = data.countries.map((c) => ({
+  const err = live ? rtError : error;
+  if (err) return <ErrorNote error={err} />;
+  if (live ? !rt : (isLoading || !data)) return <Loading label={live ? 'Učitavam uživo…' : undefined} />;
+
+  const src = live ? rt : data;
+  const valueKey = live ? 'activeUsers' : 'pageviews';
+  const valueLabel = live ? 'aktivnih' : 'pregleda';
+
+  const countries = src.countries.map((c) => ({
     ...c,
     name: COUNTRY_NAMES[c.country] ?? c.country,
     region: COUNTRY_REGIONS[c.country] ?? 'Ostalo',
   }));
 
-  const cities = cityData?.cities ?? [];
+  const allCities = live ? rt.cities : (cityData?.cities ?? []);
+  const cities = country ? allCities.filter((c) => c.country === country) : allCities;
+  // Kosovo se grupiše sa Srbijom još na ingestion-u (config.countryMerge),
+  // pa ovde ne postoji kao poseban kod.
+  const REGION = ['BA', 'ME', 'HR', 'MK', 'SI'];
   const home = countries.find((c) => c.country === 'RS');
-  const region = countries.filter((c) => ['BA', 'ME', 'HR', 'MK', 'SI', 'XK'].includes(c.country));
-  const regionPv = region.reduce((s, c) => s + c.pageviews, 0);
-  const diaspora = countries.filter((c) => !['RS', 'BA', 'ME', 'HR', 'MK', 'SI', 'XK'].includes(c.country));
-  const diasporaPv = diaspora.reduce((s, c) => s + c.pageviews, 0);
+  const region = countries.filter((c) => REGION.includes(c.country));
+  const regionPv = region.reduce((a, c) => a + (c[valueKey] ?? 0), 0);
+  const diaspora = countries.filter((c) => c.country !== 'RS' && !REGION.includes(c.country));
+  const diasporaPv = diaspora.reduce((a, c) => a + (c[valueKey] ?? 0), 0);
+  const grandTotal = live ? rt.totalActive : data.total;
 
   return (
     <>
@@ -57,13 +76,33 @@ export default function GeoPage() {
         title="Geografija"
         description="Odakle čitaoci dolaze — i sa kog kanala u kojoj zemlji."
       >
-        <RangePicker value={days} onChange={setDays} />
-        <Button onClick={() => downloadCsv(`/geo/export.csv?days=${days}`, `pulse-geografija-${days}d.csv`)}>
-          CSV
-        </Button>
+        <div className="inline-flex rounded-md border border-[var(--border)] bg-[var(--surface-1)] p-0.5">
+          <button
+            type="button"
+            onClick={() => setLive(true)}
+            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors
+              ${live ? 'bg-[var(--status-good)] text-white' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-2)]'}`}
+          >
+            Uživo
+          </button>
+          <button
+            type="button"
+            onClick={() => setLive(false)}
+            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors
+              ${!live ? 'bg-[var(--series-1)] text-white' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-2)]'}`}
+          >
+            Istorija
+          </button>
+        </div>
+        {!live && <RangePicker value={days} onChange={setDays} />}
+        {!live && (
+          <Button onClick={() => downloadCsv(`/geo/export.csv?days=${days}`, `pulse-geografija-${days}d.csv`)}>
+            CSV
+          </Button>
+        )}
       </PageHeader>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className={`mb-4 flex flex-wrap items-center gap-2 ${live ? 'hidden' : ''}`}>
         <span className="text-xs text-[var(--text-muted)]">Kanal:</span>
         <div className="inline-flex flex-wrap rounded-md border border-[var(--border)] bg-[var(--surface-1)] p-0.5">
           {SOURCE_OPTIONS.map((o) => (
@@ -83,20 +122,24 @@ export default function GeoPage() {
       </div>
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile label="Ukupno pregleda" value={num(data.total)} />
+        <StatTile
+          label={live ? 'Aktivnih sada' : 'Ukupno pregleda'}
+          value={num(grandTotal)}
+          hint={live ? 'poslednjih 30 minuta' : undefined}
+        />
         <StatTile
           label="Srbija"
           value={home ? pct(home.share) : '—'}
-          hint={home ? `${num(home.pageviews)} pregleda` : ''}
+          hint={home ? `${num(home[valueKey] ?? 0)} ${valueLabel}` : ''}
         />
         <StatTile
           label="Region"
-          value={data.total ? pct((regionPv / data.total) * 100) : '—'}
-          hint="BA, ME, HR, MK, SI, XK"
+          value={grandTotal ? pct((regionPv / grandTotal) * 100) : '—'}
+          hint="BA, ME, HR, MK, SI"
         />
         <StatTile
           label="Dijaspora i ostalo"
-          value={data.total ? pct((diasporaPv / data.total) * 100) : '—'}
+          value={grandTotal ? pct((diasporaPv / grandTotal) * 100) : '—'}
           hint={`${diaspora.length} zemalja`}
         />
       </div>
@@ -113,6 +156,9 @@ export default function GeoPage() {
             cities={cities}
             selectedCountry={country}
             onSelectCountry={setCountry}
+            valueKey={valueKey}
+            valueLabel={valueLabel}
+            live={live}
           />
         </Card>
       </div>
@@ -122,12 +168,14 @@ export default function GeoPage() {
           <DataTable
             columns={[
               { key: 'name', label: 'Država' },
-              { key: 'pageviews', label: 'Pregledi', align: 'right' },
-              { key: 'uniqueVisitors', label: 'Jedinstveni', align: 'right' },
+              live
+                ? { key: 'activeUsers', label: 'Aktivnih', align: 'right' }
+                : { key: 'pageviews', label: 'Pregledi', align: 'right' },
+              { key: 'uniqueVisitors', label: live ? 'Sesija' : 'Jedinstveni', align: 'right' },
               { key: 'share', label: 'Udeo', align: 'right', render: (r) => pct(r.share) },
             ]}
             rows={countries.map((c) => ({ ...c, id: c.country }))}
-            initialSort={{ key: 'pageviews', dir: 'desc' }}
+            initialSort={{ key: valueKey, dir: 'desc' }}
             onRowClick={(r) => setCountry(r.country === country ? null : r.country)}
           />
         </Card>
@@ -140,7 +188,7 @@ export default function GeoPage() {
             <BarList
               data={cities.slice(0, 14).map((c) => ({ ...c, label: `${c.city} (${c.country})` }))}
               labelKey="label"
-              valueKey="pageviews"
+              valueKey={valueKey}
               color="var(--series-2)"
               height={Math.max(220, Math.min(14, cities.length) * 26)}
             />
@@ -158,11 +206,13 @@ export default function GeoPage() {
             columns={[
               { key: 'city', label: 'Grad' },
               { key: 'country', label: 'Država', render: (r) => COUNTRY_NAMES[r.country] ?? r.country },
-              { key: 'pageviews', label: 'Pregledi', align: 'right' },
-              { key: 'uniqueVisitors', label: 'Jedinstveni', align: 'right' },
+              live
+                ? { key: 'activeUsers', label: 'Aktivnih', align: 'right' }
+                : { key: 'pageviews', label: 'Pregledi', align: 'right' },
+              { key: 'uniqueVisitors', label: live ? 'Sesija' : 'Jedinstveni', align: 'right' },
             ]}
             rows={cities.map((c, i) => ({ ...c, id: `${c.country}-${c.city}-${i}` }))}
-            initialSort={{ key: 'pageviews', dir: 'desc' }}
+            initialSort={{ key: valueKey, dir: 'desc' }}
             empty="Nema podataka o gradovima. Proverite da li je GeoLite2 baza na mestu."
           />
           <div className="mt-3">
@@ -175,7 +225,7 @@ export default function GeoPage() {
         </Card>
       </div>
 
-      {channels?.rows?.length > 0 && (
+      {!live && channels?.rows?.length > 0 && (
         <Card
           title="Kanal × država"
           subtitle="Isti saobraćaj presečen drugačije — pokazuje da dijaspora ne dolazi istim putem kao domaći čitaoci"

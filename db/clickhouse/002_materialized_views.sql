@@ -545,3 +545,40 @@ FROM pulse.events
 ARRAY JOIN tags AS tag
 WHERE event_type = 'pageview' AND is_bot = 0
 GROUP BY date, site, tag, traffic_source;
+
+-- ---------------------------------------------------------------------------
+-- Real-time geografija: drzava x grad po minutu.
+--
+-- Postoji odvojeno od geo_daily jer mapa uzivo pita "ko je aktivan sada" na
+-- svakih 10 sekundi. Bez ovoga bi svaki refresh cesljao sirove evente tekuceg
+-- dana. TTL je 2 dana - istorija je posao geo_daily-ja.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pulse.geo_minute
+(
+    minute          DateTime,
+    site            LowCardinality(String),
+    country         LowCardinality(String),
+    city            String,
+    lat             SimpleAggregateFunction(anyLast, Float32),
+    lon             SimpleAggregateFunction(anyLast, Float32),
+    pageviews       SimpleAggregateFunction(sum, UInt64),
+    sessions_state  AggregateFunction(uniq, String)
+)
+ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMMDD(minute)
+ORDER BY (minute, site, country, city)
+TTL minute + INTERVAL 2 DAY;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS pulse.mv_geo_minute TO pulse.geo_minute AS
+SELECT
+    toStartOfMinute(timestamp)  AS minute,
+    site,
+    country,
+    city,
+    anyLast(lat)                AS lat,
+    anyLast(lon)                AS lon,
+    toUInt64(count())           AS pageviews,
+    uniqState(session_id)       AS sessions_state
+FROM pulse.events
+WHERE event_type = 'pageview' AND is_bot = 0 AND country != ''
+GROUP BY minute, site, country, city;

@@ -81,7 +81,7 @@ const PLACES = [
   ['BA', 'Banja Luka', 44.77, 17.19, 0.04], ['BA', 'Sarajevo', 43.86, 18.41, 0.03],
   ['ME', 'Podgorica', 42.44, 19.26, 0.03], ['HR', 'Zagreb', 45.81, 15.98, 0.02],
   ['MK', 'Skopje', 41.99, 21.43, 0.02], ['SI', 'Ljubljana', 46.06, 14.51, 0.01],
-  ['XK', 'Pristina', 42.67, 21.17, 0.01],
+  ['RS', 'Pristina', 42.67, 21.17, 0.01],
   ['DE', 'Munich', 48.14, 11.58, 0.05], ['DE', 'Frankfurt', 50.11, 8.68, 0.03],
   ['DE', 'Berlin', 52.52, 13.40, 0.02], ['AT', 'Vienna', 48.21, 16.37, 0.04],
   ['CH', 'Zurich', 47.37, 8.54, 0.03], ['SE', 'Stockholm', 59.33, 18.07, 0.02],
@@ -790,7 +790,36 @@ export function demoResponse(path) {
 
   switch (parts[0]) {
     case 'overview': return overview(days);
-    case 'realtime': return realtime();
+    case 'realtime': {
+      if (parts[1] === 'geo') {
+        // Uzivo: mali brojevi, blago se menjaju na svakih 10 sekundi
+        const rand = rng(Math.floor(Date.now() / 10_000));
+        const active = 2400 + Math.round(rand() * 900);
+        const rows = geoRows(active, Math.floor(Date.now() / 10_000) % 1000)
+          .map((r) => ({ ...r, activeUsers: Math.max(1, Math.round(r.pageviews * 0.55)) }));
+
+        const totals = new Map();
+        for (const r of rows) totals.set(r.country, (totals.get(r.country) ?? 0) + r.activeUsers);
+        const totalActive = [...totals.values()].reduce((a, b) => a + b, 0);
+
+        return {
+          minutes: 30,
+          totalActive,
+          totalPageviews: rows.reduce((a, b) => a + b.pageviews, 0),
+          countries: [...totals].map(([country, activeUsers]) => ({
+            country,
+            pageviews: Math.round(activeUsers / 0.55),
+            uniqueVisitors: activeUsers,
+            activeUsers,
+            share: totalActive > 0 ? Math.round((activeUsers / totalActive) * 1000) / 10 : 0,
+          })).sort((a, b) => b.activeUsers - a.activeUsers),
+          cities: rows
+            .map((r) => ({ ...r, uniqueVisitors: r.activeUsers }))
+            .sort((a, b) => b.activeUsers - a.activeUsers),
+        };
+      }
+      return realtime();
+    }
     case 'alerts': return alerts();
 
     case 'authors':

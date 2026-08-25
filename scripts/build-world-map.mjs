@@ -119,10 +119,12 @@ for (const geom of topology.objects.countries.geometries) {
   if (parts.length) countries[alpha2] = parts.join('');
 }
 
-// Kosovo nema ISO kod, a za srpski sportski portal je relevantna teritorija -
-// MaxMind ga vraća kao XK. Natural Earth ga vodi pod id -99 / "Kosovo".
+// Natural Earth vodi Kosovo kao zasebnu geometriju (id -99). Za ovog klijenta
+// je ono deo Srbije, pa se putanja spaja sa RS i ne postoji kao posebna drzava.
+// Isto grupisanje se primenjuje i na podatke, u config.countryMerge - inace bi
+// mapa i tabele pokazivale razlicite brojeve.
 const kosovo = topology.objects.countries.geometries.find((g) => g.properties?.name === 'Kosovo');
-if (kosovo && !countries.XK) {
+if (kosovo) {
   const polygons = kosovo.type === 'Polygon' ? [kosovo.arcs] : kosovo.arcs;
   const parts = [];
   for (const polygon of polygons) {
@@ -131,11 +133,7 @@ if (kosovo && !countries.XK) {
       if (d) parts.push(d);
     }
   }
-  if (parts.length) {
-    countries.XK = parts.join('');
-    alpha2ToName.set('XK', 'Kosovo');
-    alpha2ToRegion.set('XK', 'Europe');
-  }
+  if (parts.length) countries.RS = (countries.RS ?? '') + parts.join('');
 }
 
 const names = {};

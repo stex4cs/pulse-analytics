@@ -151,6 +151,7 @@ Sva vremena u odgovorima su **UTC**.
 | GET | `/geo` | sve | države; filteri `source`, `category`, `tag`, `author` |
 | GET | `/geo/cities` | sve | gradovi sa koordinatama; filter `country` |
 | GET | `/geo/channels` | admin, editor | matrica država × kanal |
+| GET | `/realtime/geo` | sve | aktivni posetioci po državi i gradu (poslednjih 30 min) |
 | GET | `/geo/export.csv` | sve | CSV |
 | GET | `/channels` | sve | matrica entitet × kanal; `dimension=author\|category\|tag`, opciono `entity` |
 | GET | `/channels/export.csv` | admin, editor | CSV |

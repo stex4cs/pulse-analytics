@@ -235,6 +235,27 @@ docker compose up -d --build ingest-1 ingest-2
 docker compose restart nginx          # bez ovoga: 502 na /collect
 ```
 
+### Promena grupisanja teritorija
+
+`PULSE_COUNTRY_MERGE` (podrazumevano `XK:RS`) primenjuje se **na ingestion-u**, dakle
+samo na nove evente. Ako se pravilo menja, postojeći podaci se prevode jednom:
+
+```bash
+docker compose exec clickhouse clickhouse-client --query \
+  "ALTER TABLE pulse.events UPDATE country = 'RS' WHERE country = 'XK'"
+```
+
+Mutacija je asinhrona; prati se kroz `system.mutations`. Posle toga treba ponovo
+izgraditi agregate za pogođeni period:
+
+```bash
+docker compose exec cron node packages/cron/src/cli.js daily <od> <do>
+```
+
+Granice na mapi se menjaju u `scripts/build-world-map.mjs` i zahtevaju
+`node scripts/build-world-map.mjs` pa novi build dashboarda — mapa i podaci
+moraju da prate isto pravilo, inače tabela i mapa pokazuju različito.
+
 ### Rotacija tajni
 
 `IP_HASH_SECRET` — promena je bezbedna, prekida povezivanje hash-eva starih i novih dana

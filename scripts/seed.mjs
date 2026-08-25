@@ -79,7 +79,7 @@ const PLACES = [
   ['HR', 'Zagreb',      45.81, 15.98, 0.02],
   ['MK', 'Skopje',      41.99, 21.43, 0.02],
   ['SI', 'Ljubljana',   46.06, 14.51, 0.01],
-  ['XK', 'Pristina',    42.67, 21.17, 0.01],
+  ['RS', 'Pristina',    42.67, 21.17, 0.01],
   // Dijaspora
   ['DE', 'Munich',      48.14, 11.58, 0.05],
   ['DE', 'Frankfurt',   50.11,  8.68, 0.03],

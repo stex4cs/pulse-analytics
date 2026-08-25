@@ -5,6 +5,14 @@
  * broje i loguju - /collect uvek vraca 204 (sekcija 4.1).
  */
 
+import { config } from './config.js';
+
+/** Grupisanje teritorija (npr. XK -> RS). Vidi config.countryMerge. */
+export function normalizeCountry(code) {
+  const c = String(code ?? '').toUpperCase();
+  return config.countryMerge[c] ?? c;
+}
+
 export const EVENT_TYPES = Object.freeze([
   'pageview',
   'scroll_depth',
@@ -159,7 +167,7 @@ export function buildEventRow(raw, ctx) {
     device_type: ctx.ua.device_type,
     browser: ctx.ua.browser,
     os: ctx.ua.os,
-    country: str(ctx.geo.country, 4),
+    country: normalizeCountry(str(ctx.geo.country, 4)),
     city: str(ctx.geo.city, MAX.city),
     lat: Number(ctx.geo.lat) || 0,
     lon: Number(ctx.geo.lon) || 0,
